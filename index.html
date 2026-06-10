@@ -145,6 +145,8 @@ thead .colname{z-index:9}
 .cellopt:hover{filter:brightness(.96);box-shadow:inset 0 0 0 1px var(--line)}
 .cellopt.cur{outline:2px solid var(--accent);outline-offset:-2px}
 .cellopt b{min-width:18px;text-align:center}
+.segbtn{border:1px solid var(--line);background:#fff;color:var(--muted);border-radius:7px;padding:6px 12px;font-weight:700;font-size:12px;cursor:pointer}
+.segbtn.on{background:var(--accent);color:#fff;border-color:var(--accent)}
 .mlbl{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px}
 .xrestr{border:0;background:var(--c-LMb);color:var(--bad);width:22px;height:22px;border-radius:6px;font-weight:700;font-size:14px;line-height:1;cursor:pointer}
 .xrestr:hover{background:#f5b8b8}
@@ -196,6 +198,7 @@ tr.section-lbl td{background:var(--ink2);color:#fff;text-align:left;padding:6px 
   <button class="tab" data-view="uncov">3 · Turnos no cubiertos <span class="badge zero" id="uncovBadge">0</span></button>
   <button class="tab" data-view="legal">4 · Validación legal <span class="badge zero" id="legalBadge">0</span></button>
   <button class="tab" data-view="extra">5 · Descansos extra <span class="badge zero" id="extraBadge">0</span></button>
+  <button class="tab" data-view="ot">6 · Horas extras</button>
   <button class="tab" data-view="terminales">Despachadores</button>
 </div>
 <div class="wrap">
@@ -278,6 +281,19 @@ tr.section-lbl td{background:var(--ink2);color:#fff;text-align:left;padding:6px 
     </div>
   </div>
 
+  <div class="view" id="view-ot">
+    <div id="otEmpty" class="card"><div class="empty"><div class="big">Sin programación</div>Con los turnos de 7 h no se cubren las 24 h del día; aquí verás las horas que deben cubrirse con horas extras, por terminal y por despachador.</div></div>
+    <div id="otContent" style="display:none">
+      <div class="summary-strip" id="otKpis"></div>
+      <div class="grid2" style="grid-template-columns:1fr 1fr;align-items:start">
+        <div class="card"><div class="hd"><h3>Horas extra por despachador</h3></div>
+          <div style="max-height:60vh;overflow:auto"><table class="dtable" id="otByWorker"></table></div></div>
+        <div class="card"><div class="hd"><h3>Horas sin cobertura por día</h3></div>
+          <div style="max-height:60vh;overflow:auto"><table class="dtable" id="otByDay"></table></div></div>
+      </div>
+    </div>
+  </div>
+
   <div class="view" id="view-terminales">
     <div class="card">
       <div class="hd"><span class="eyebrow">Traslados</span><h3>Terminal de cada despachador</h3>
@@ -323,14 +339,14 @@ function getHolidays(year, month){
 'use strict';
 /* ===================== MOTOR ===================== */
 var SHIFT_DEFS = {
-  M:{id:'M',label:'Mañana',time:'08:00–16:00',start:8,end:16,std:true},
-  T:{id:'T',label:'Tarde',time:'16:00–00:00',start:16,end:24,std:true},
-  N:{id:'N',label:'Noche',time:'00:00–08:00',start:0,end:8,std:true},
-  A:{id:'A',label:'Turno 05–13',time:'05:00–13:00',start:5,end:13,std:false},
-  B:{id:'B',label:'Turno 14–22',time:'14:00–22:00',start:14,end:22,std:false},
-  C:{id:'C',label:'Turno 13–21',time:'13:00–21:00',start:13,end:21,std:false}
+  N:{id:'N',label:'Noche',time:'00:00–07:00',start:0,end:7,std:true},
+  M:{id:'M',label:'Mañana',time:'08:00–15:00',start:8,end:15,std:true},
+  T:{id:'T',label:'Tarde',time:'16:00–23:00',start:16,end:23,std:true},
+  A:{id:'A',label:'Turno 05–12',time:'05:00–12:00',start:5,end:12,std:false},
+  C:{id:'C',label:'Turno 10–17',time:'10:00–17:00',start:10,end:17,std:false},
+  B:{id:'B',label:'Turno 14–21',time:'14:00–21:00',start:14,end:21,std:false}
 };
-var SHIFT_ORDER=['M','T','N','A','B','C'];
+var SHIFT_ORDER=['N','M','T','A','C','B'];
 var STATE_DEFS={L:{label:'Libre',cls:'s-L'},LM:{label:'Licencia médica',cls:'s-LM'},VAC:{label:'Vacaciones',cls:'s-VAC'}};
 var REST_MIN=10, ENGINE_NW=0, ENGINE_EXTRA=[];
 function pad(n){return n<10?'0'+n:''+n;}
@@ -365,19 +381,28 @@ function buildWorkerRow(worker,monthInfo,offset,seed,rotShifts,dayTarget){
     else if(inRange(dd.date,r.vacaciones)) row[i]='VAC';
     else if(userLibres[dd.date]) row[i]='L';
   });
+  // Turno fijo L-V con fin de semana libre o un turno (p.ej. tarde) -> plantilla + puente lunes
+  var lvWeekend=(fixed&&r.fixedDays==='LV'&&r.weekendShift&&r.weekendShift!=='L'&&SHIFT_DEFS[r.weekendShift])?r.weekendShift:null;
+  if(fixed && r.fixedDays==='LV' && !lvWeekend){
+    days.forEach(function(dd,i){ if(row[i]!=='LM'&&row[i]!=='VAC'){ row[i]=(dd.dow===0||dd.dow===6)?'L':fixed; } });
+    return {row:row,quota:redDays,startRun:0};
+  }
   var rs=(rotShifts&&rotShifts.length)?rotShifts:[dayTarget||'M'];
-  var baseShift=function(dd){ return fixed?fixed:rs[((offset+dd.week)%rs.length+rs.length)%rs.length]; };
+  var baseShift=function(dd){ if(lvWeekend) return (dd.dow===0||dd.dow===6)?lvWeekend:fixed; return fixed?fixed:rs[((offset+dd.week)%rs.length+rs.length)%rs.length]; };
   days.forEach(function(dd,i){ if(row[i]===null) row[i]=baseShift(dd); });
   var setL=function(i){ if(row[i]!=='LM'&&row[i]!=='VAC') row[i]='L'; };
   function countL(){var x=0;row.forEach(function(c){if(c==='L')x++;});return x;}
-  function sundayLibres(){var x=0;days.forEach(function(dd,i){if(dd.isSunday&&row[i]==='L')x++;});return x;}
+  // Domingos descansados: cuenta L, licencia y vacaciones (todos cuentan como descanso dominical)
+  function sundayRested(){var x=0;days.forEach(function(dd,i){if(dd.isSunday&&(row[i]==='L'||row[i]==='LM'||row[i]==='VAC'))x++;});return x;}
+  function sundayLibresL(){var x=0;days.forEach(function(dd,i){if(dd.isSunday&&row[i]==='L')x++;});return x;}
   var availDays=days.filter(function(dd,i){return row[i]!=='LM'&&row[i]!=='VAC';}).length;
   var quota=redDays; if(availDays<n) quota=Math.round(redDays*availDays/n);
   if(r.fdsLibre){ var wends=[]; for(var i=0;i<n;i++){ if(days[i].dow===6&&i+1<n&&days[i+1].dow===0) wends.push(i); }
     if(wends.length){ var pk=wends[seed%wends.length]; setL(pk); setL(pk+1); } }
   var sundayIdx=days.map(function(dd,i){return (dd.isSunday&&isShift(row[i]))?i:-1;}).filter(function(i){return i>=0;});
-  if(sundayIdx.length){ var ss=seed%sundayIdx.length, k=0; while(sundayLibres()<2&&k<sundayIdx.length){ setL(sundayIdx[(ss+k)%sundayIdx.length]); k++; } }
-  for(var i3=1;i3<n;i3++){ if(!gapOK(row[i3-1],row[i3])){ if(days[i3-1].isSunday) setL(i3); else if(days[i3].isSunday) setL(i3-1); else if(seed%2===0) setL(i3); else setL(i3-1); } }
+  if(sundayIdx.length){ var ss=seed%sundayIdx.length, k=0; while(sundayRested()<2&&k<sundayIdx.length){ setL(sundayIdx[(ss+k)%sundayIdx.length]); k++; } }
+  function bridgeMon(i){ return lvWeekend && days[i].dow===1 && i>0 && isShift(row[i-1]) && gapOK(row[i-1],'C') && (i+1>=n||!isShift(row[i+1])||gapOK('C',row[i+1])); }
+  for(var i3=1;i3<n;i3++){ if(!gapOK(row[i3-1],row[i3])){ if(bridgeMon(i3)) row[i3]='C'; else if(days[i3-1].isSunday) setL(i3); else if(days[i3].isSunday) setL(i3-1); else if(seed%2===0) setL(i3); else setL(i3-1); } }
   var startRun;
   if(r.lastFree){ var diff=dateDiffDays(r.lastFree,days[0].date); startRun=Math.max(0,Math.min(6,diff-1)); }
   else { var ph=(ENGINE_NW>0?Math.round(seed*7/ENGINE_NW):seed)%7; if(ph<0)ph+=7; startRun=6-ph; }
@@ -391,17 +416,17 @@ function buildWorkerRow(worker,monthInfo,offset,seed,rotShifts,dayTarget){
     for(var t=(seed%step);t<w2.length&&need>0;t+=step){ if(isShift(row[w2[t]])){setL(w2[t]);need--;} }
     w2=days.map(function(dd,i){return (isShift(row[i])&&!dd.isSunday)?i:-1;}).filter(function(i){return i>=0;});
     for(var u=w2.length-1;u>=0&&need>0;u--){ setL(w2[u]); need--; } }
-  for(var v=1;v<n;v++){ if(!gapOK(row[v-1],row[v])) setL(v); }
+  for(var v=1;v<n;v++){ if(!gapOK(row[v-1],row[v])){ if(bridgeMon(v)) row[v]='C'; else setL(v); } }
   var run2=startRun; for(var z=0;z<n;z++){ if(isShift(row[z])){run2++; if(run2>6){setL(z);run2=0;}} else run2=0; }
   function validOK(){ var rn=startRun; for(var i=0;i<n;i++){ if(isShift(row[i])){rn++; if(rn>6)return false;} else rn=0; }
     for(var j=1;j<n;j++){ if(isShift(row[j-1])&&isShift(row[j])){ if((SHIFT_DEFS[row[j]].start+24)-SHIFT_DEFS[row[j-1]].end<REST_MIN) return false; } } return true; }
   var tg=0;
   while(countL()>quota+1&&tg++<80){ var rem=false;
-    for(var ri=0;ri<n;ri++){ if(row[ri]!=='L'||userLibres[days[ri].date]) continue; if(days[ri].isSunday&&sundayLibres()<=2) continue;
+    for(var ri=0;ri<n;ri++){ if(row[ri]!=='L'||userLibres[days[ri].date]) continue; if(days[ri].isSunday&&sundayRested()<=2) continue;
       var bs=baseShift(days[ri]); row[ri]=bs; if(validOK()){rem=true;break;} else row[ri]='L'; }
     if(!rem) break; }
   var sg=0, prog=true;
-  while(prog&&sundayLibres()>2&&sg++<60){ prog=false; var ex=[];
+  while(prog&&sundayRested()>2&&sundayLibresL()>0&&sg++<60){ prog=false; var ex=[];
     for(var e0=0;e0<n;e0++){ if(days[e0].isSunday&&row[e0]==='L'&&!userLibres[days[e0].date]) ex.push(e0); }
     for(var es=0;es<ex.length&&!prog;es++){ var sd=ex[es]; row[sd]=baseShift(days[sd]); var sj=seed%n, added=false;
       for(var c=0;c<n;c++){ var jj=(sj+c)%n; if(days[jj].isSunday||!isShift(row[jj])) continue; var svv=row[jj]; row[jj]='L'; if(validOK()){added=true;break;} else row[jj]=svv; }
@@ -431,11 +456,14 @@ function rebalance(rows,monthInfo,activeSh,demand){
   function capRaw(s,we){ var v=we?demand[s].maxWeekend:demand[s].maxWeekday; return (v==null||v==='')?999:v; }
   function isFixed(w){ var r=rows[w].worker.restriction||{}; return !!(r.mode&&r.mode.indexOf('FIJO')===0); }
   function isFixedN(w){ var r=rows[w].worker.restriction||{}; return r.mode==='FIJO_N'; }
-  var dayTargets=activeSh.filter(function(s){return s!=='N';}); var dayTarget=dayTargets.length?dayTargets[0]:'M';
+  function reemplazoN(w){ var r=rows[w].worker.restriction||{}; return !!r.reemplazoNocturno; }
+  function staffed(s){ return demand[s].weekday>0||demand[s].weekend>0; }
+  var dayTargets=activeSh.filter(function(s){return s!=='N'&&staffed(s);}); var dayTarget=dayTargets.length?dayTargets[0]:(activeSh.filter(function(s){return s!=='N';})[0]||'M');
   function legalAt(w,d,target){ var prev=d>0?rows[w].row[d-1]:null, next=d<n-1?rows[w].row[d+1]:null;
     if(isShift(prev)&&(SHIFT_DEFS[target].start+24)-SHIFT_DEFS[prev].end<REST_MIN) return false;
     if(isShift(next)&&(SHIFT_DEFS[next].start+24)-SHIFT_DEFS[target].end<REST_MIN) return false; return true; }
-  function canTake(w,d,target){ var cur=rows[w].row[d]; if(!isShift(cur)||isFixed(w)||cur===target)return false; return legalAt(w,d,target); }
+  function canTake(w,d,target){ var cur=rows[w].row[d]; if(!isShift(cur)||cur===target)return false;
+    if(isFixed(w)&&!(target==='N'&&reemplazoN(w))) return false; return legalAt(w,d,target); }
   function counts(d){var c={};activeSh.forEach(function(s){c[s]=0;});rows.forEach(function(rr){if(c[rr.row[d]]!==undefined)c[rr.row[d]]++;});return c;}
   // (A) tope estricto noche
   if(activeSh.indexOf('N')>=0){ var nWD=capRaw('N',false), nWE=capRaw('N',true);
@@ -469,24 +497,25 @@ function rebalance(rows,monthInfo,activeSh,demand){
       for(var si=0;si<srcs.length&&!moved;si++){ var O=srcs[si];
         for(var w=0;w<rows.length;w++){ if(rows[w].row[d]===O&&canTake(w,d,U)){ rows[w].row[d]=U; moved=true; break; } } } }
     if(!moved) break; } });
-  // (D) déficit con descanso adicional (vecino sobredotado) -> reportado
+  // (D) déficit con descanso adicional (vecino sobredotado) -> reportado (sin repetir trabajador)
+  var extraUsed={};
   days.forEach(function(dd,d){ var unders=activeSh.filter(function(s){var c=counts(d);return c[s]<minOf(s,dd);});
     unders.forEach(function(U){ if(U==='N') return; var c2=counts(d), guard=0;
       while(c2[U]<minOf(U,dd)&&guard++<10){ var srcs=activeSh.filter(function(s){return s!==U&&c2[s]>minOf(s,dd);}).sort(function(a,b){return (c2[b]-minOf(b,dd))-(c2[a]-minOf(a,dd));});
         var done=false;
         for(var si=0;si<srcs.length&&!done;si++){ var O=srcs[si];
-          for(var w=0;w<rows.length&&!done;w++){ if(rows[w].row[d]!==O||isFixed(w)) continue;
+          for(var w=0;w<rows.length&&!done;w++){ if(rows[w].row[d]!==O||isFixed(w)||extraUsed[rows[w].worker.rol]) continue;
             var prev=d>0?rows[w].row[d-1]:null, next=d<n-1?rows[w].row[d+1]:null, needRest=[];
             if(isShift(prev)&&(SHIFT_DEFS[U].start+24)-SHIFT_DEFS[prev].end<REST_MIN) needRest.push(d-1);
             if(isShift(next)&&(SHIFT_DEFS[next].start+24)-SHIFT_DEFS[U].end<REST_MIN) needRest.push(d+1);
             var ok=true; needRest.forEach(function(rd){ var dr=days[rd], sh=rows[w].row[rd], cc=counts(rd); if(!(isShift(sh)&&cc[sh]>minOf(sh,dr))) ok=false; });
             if(needRest.length>2) ok=false;
-            if(ok){ rows[w].row[d]=U; needRest.forEach(function(rd){ rows[w].row[rd]='L';
+            if(ok){ rows[w].row[d]=U; extraUsed[rows[w].worker.rol]=1; needRest.forEach(function(rd){ rows[w].row[rd]='L';
               ENGINE_EXTRA.push({rol:rows[w].worker.rol,nombre:rows[w].worker.nombre,date:days[rd].date,day:days[rd].d,reason:'Descanso adicional para cubrir '+SHIFT_DEFS[U].label+' del '+dd.date+' (respeta 10 h entre turnos)'}); });
               done=true; } } }
         if(!done) break; c2=counts(d); } }); });
   // (E) distribución equitativa (turnos de día)
-  days.forEach(function(dd,d){ var g=0; while(g++<200){ var c=counts(d); var cand=activeSh.filter(function(s){return s!=='N';}); if(cand.length<2) break;
+  days.forEach(function(dd,d){ var g=0; while(g++<200){ var c=counts(d); var cand=activeSh.filter(function(s){return s!=='N'&&staffed(s);}); if(cand.length<2) break;
     var hi=null,lo=null; cand.forEach(function(s){ if(hi===null||c[s]>c[hi])hi=s; if(lo===null||c[s]<c[lo])lo=s; });
     if(c[hi]-c[lo]<2||c[hi]<=minOf(hi,dd)) break; if(c[lo]>=capRaw(lo,dd.isWeekend)) break;
     var mv=false; for(var w=0;w<rows.length&&!mv;w++){ if(rows[w].row[d]===hi&&canTake(w,d,lo)){ rows[w].row[d]=lo; mv=true; } }
@@ -500,6 +529,33 @@ function rebalance(rows,monthInfo,activeSh,demand){
           if(rr.row[s2]===sh){ var c2=counts(s2); if(c2[sh]>minOf(sh,dd2)){ var a=rr.row[s], b=rr.row[s2]; rr.row[s]=sh; rr.row[s2]='L';
             if(validateRow(rr.row,days,rr.startRun).issues.length===0) done=true; else { rr.row[s]=a; rr.row[s2]=b; } } } } }
       if(!done) break; } }); });
+  // (G) repartir el déficit entre días: equilibrar la dotación total diaria
+  function totalDay(d){ var t=0; activeSh.forEach(function(s){ var c=counts(d); t+=c[s]; }); return t; }
+  function dayTotals(){ var arr=[]; for(var d=0;d<n;d++){ var t=0; rows.forEach(function(rr){ if(activeSh.indexOf(rr.row[d])>=0) t++; }); arr.push(t); } return arr; }
+  var gg=0;
+  while(gg++<400){ var tot=dayTotals(), mx=0,mn=0;
+    for(var d=1;d<n;d++){ if(tot[d]>tot[mx]) mx=d; if(tot[d]<tot[mn]) mn=d; }
+    if(tot[mx]-tot[mn]<2) break;
+    // mover un descanso del día con menos dotación (mn) al día con más (mx): w libra en mn y trabaja en mx
+    var moved=false;
+    for(var w=0;w<rows.length&&!moved;w++){ var rr=rows[w]; var rstr=rr.worker.restriction||{};
+      if(rr.row[mn]!=='L') continue; if((rstr.libres||[]).indexOf(days[mn].date)>=0) continue;
+      if(!isShift(rr.row[mx])) continue; if(isFixed(w)) continue;
+      var work=baseShift_G(rr,mn); if(work==='N') work=dayTarget;
+      var a=rr.row[mn], b=rr.row[mx]; rr.row[mn]=work; rr.row[mx]='L';
+      // mantener >=2 domingos descansados y validez
+      var v=validateRow(rr.row,days,rr.startRun);
+      var domOK=sundayRestedRow(rr.row)>=2;
+      if(v.issues.length===0 && domOK) moved=true; else { rr.row[mn]=a; rr.row[mx]=b; }
+    }
+    if(!moved) break;
+  }
+  function baseShift_G(rr,d){ var rstr=rr.worker.restriction||{}; var fm={FIJO_M:'M',FIJO_T:'T',FIJO_N:'N',FIJO_A:'A',FIJO_C:'C',FIJO_B:'B'};
+    if(fm[rstr.mode]) return fm[rstr.mode];
+    // turno de la semana segun vecinos trabajados
+    for(var k=1;k<7;k++){ if(d-k>=0&&isShift(rr.row[d-k])) return rr.row[d-k]; if(d+k<n&&isShift(rr.row[d+k])) return rr.row[d+k]; }
+    return dayTarget; }
+  function sundayRestedRow(row){ var x=0; days.forEach(function(dd,i){ if(dd.isSunday&&(row[i]==='L'||row[i]==='LM'||row[i]==='VAC')) x++; }); return x; }
 }
 function runEngine(cfg){
   ENGINE_EXTRA=[]; var monthInfo=buildMonth(cfg.year,cfg.month,cfg.holidays); ENGINE_NW=cfg.workers.length;
@@ -512,7 +568,30 @@ function runEngine(cfg){
     var b=buildWorkerRow(w,monthInfo,off,idx,rotShifts,dayTarget); return {worker:w,row:b.row,quota:b.quota,startRun:b.startRun}; });
   rebalance(rows,monthInfo,cfg.activeShifts,cfg.demand);
   var cov=computeCoverage(rows.map(function(r){return r.row;}),monthInfo,cfg.activeShifts,cfg.demand);
-  return {monthInfo:monthInfo,rows:rows,cov:cov,activeShifts:cfg.activeShifts,demand:cfg.demand,terminal:cfg.terminal,year:cfg.year,month:cfg.month,extra:ENGINE_EXTRA.slice()};
+  var ot=computeOvertime(rows,monthInfo,cfg.activeShifts);
+  return {monthInfo:monthInfo,rows:rows,cov:cov,activeShifts:cfg.activeShifts,demand:cfg.demand,terminal:cfg.terminal,year:cfg.year,month:cfg.month,extra:ENGINE_EXTRA.slice(),overtime:ot};
+}
+/* Horas extras: horas del día sin cobertura (24/7), atribuidas a un turno adyacente que se extiende */
+function computeOvertime(rows,monthInfo,activeSh){
+  var days=monthInfo.days, n=days.length;
+  var byWorker={}; rows.forEach(function(rr){ byWorker[rr.worker.rol]={nombre:rr.worker.nombre,hours:0}; });
+  var perDay=[], total=0, unassigned=0;
+  for(var d=0;d<n;d++){
+    var cov=new Array(24).fill(0);
+    rows.forEach(function(rr){ var sh=SHIFT_DEFS[rr.row[d]]; if(sh){ for(var h=sh.start;h<sh.end;h++) cov[h]++; } });
+    var gaps=[]; for(var h=0;h<24;h++){ if(cov[h]===0) gaps.push(h); }
+    var rot=d; // rotar atribución por día
+    gaps.forEach(function(h){
+      // candidatos: turno que termina en h (se extiende) o que empieza en h+1 (entra antes)
+      var cand=[];
+      rows.forEach(function(rr,wi){ var sh=SHIFT_DEFS[rr.row[d]]; if(sh&&(sh.end===h||sh.start===h+1)) cand.push(rr.worker.rol); });
+      total++;
+      if(cand.length){ var rol=cand[(rot++)%cand.length]; byWorker[rol].hours++; }
+      else unassigned++;
+    });
+    perDay.push({day:days[d].d,date:days[d].date,dow:days[d].dow,gaps:gaps.slice(),gapHours:gaps.length});
+  }
+  return {byWorker:byWorker,perDay:perDay,total:total,unassigned:unassigned};
 }
 
 /* ===================== MEMORIA / PERSISTENCIA ===================== */
@@ -526,7 +605,7 @@ var state={
   terminal:null, year:2026, month:7, holidays:[],
   shifts:{ M:{active:true,weekday:2,weekend:1,maxWeekday:null,maxWeekend:null}, T:{active:true,weekday:2,weekend:1,maxWeekday:null,maxWeekend:null},
            N:{active:true,weekday:2,weekend:1,maxWeekday:2,maxWeekend:1}, A:{active:false,weekday:1,weekend:0,maxWeekday:null,maxWeekend:null},
-           B:{active:false,weekday:1,weekend:0,maxWeekday:null,maxWeekend:null}, C:{active:false,weekday:1,weekend:0,maxWeekday:null,maxWeekend:null} },
+           B:{active:false,weekday:1,weekend:0,maxWeekday:null,maxWeekend:null}, C:{active:true,weekday:0,weekend:0,maxWeekday:null,maxWeekend:null} },
   restrictions:{}, overrides:{}, memory:{}, result:null
 };
 function effTerminal(rol){ return state.overrides[rol] || (DISPATCHERS.filter(function(d){return d.rol===rol;})[0]||{}).terminal; }
@@ -584,10 +663,11 @@ function renderDemand(){ var t=$('demandTable');
     if(k==='active'){ state.shifts[s].active=this.checked; renderDemand(); }
     else if(k==='maxWeekday'||k==='maxWeekend'){ state.shifts[s][k]=(this.value===''?null:Math.max(0,parseInt(this.value,10))); }
     else state.shifts[s][k]=Math.max(0,parseInt(this.value||'0',10)); }; }); }
-function restrLabel(r){ if(!r||!r.mode||r.mode==='ROTATIVO'){ var ex=[]; if(r){ if(r.vacaciones&&r.vacaciones.from)ex.push('Vacaciones'); if(r.licencia&&r.licencia.from)ex.push('Licencia'); if(r.fdsLibre)ex.push('FDS libre'); if(r.libres&&r.libres.length)ex.push(r.libres.length+' libre(s)'); }
+function restrLabel(r){ if(!r||!r.mode||r.mode==='ROTATIVO'){ var ex=[]; if(r){ if(r.reemplazoNocturno)ex.push('reemp.noche'); if(r.vacaciones&&r.vacaciones.from)ex.push('Vacaciones'); if(r.licencia&&r.licencia.from)ex.push('Licencia'); if(r.fdsLibre)ex.push('FDS libre'); if(r.libres&&r.libres.length)ex.push(r.libres.length+' libre(s)'); }
     return ex.length?{txt:'Rotativo · '+ex.join(', '),cls:'aus'}:{txt:'Rotativo normal',cls:'rot'}; }
-  var map={FIJO_M:'Fijo mañana',FIJO_T:'Fijo tarde',FIJO_N:'Fijo noche',FIJO_A:'Fijo 05–13',FIJO_B:'Fijo 14–22',FIJO_C:'Fijo 13–21'};
-  var base=map[r.mode]||'Rotativo', ex=[]; if(r.vacaciones&&r.vacaciones.from)ex.push('Vac'); if(r.licencia&&r.licencia.from)ex.push('Lic'); if(r.fdsLibre)ex.push('FDS'); if(r.libres&&r.libres.length)ex.push(r.libres.length+'L');
+  var map={FIJO_M:'Fijo mañana',FIJO_T:'Fijo tarde',FIJO_N:'Fijo noche',FIJO_A:'Fijo 05–12',FIJO_B:'Fijo 14–21',FIJO_C:'Fijo 10–17'};
+  var base=map[r.mode]||'Rotativo', ex=[]; if(r.mode&&r.mode.indexOf('FIJO')===0){ base+=(r.fixedDays==='LV'?' (L–V)':' (L–D)'); if(r.fixedDays==='LV'&&r.weekendShift&&r.weekendShift!=='L'&&SHIFT_DEFS[r.weekendShift]) base+=' + FDS '+SHIFT_DEFS[r.weekendShift].label.toLowerCase(); }
+  if(r.reemplazoNocturno)ex.push('reemp.noche'); if(r.vacaciones&&r.vacaciones.from)ex.push('Vac'); if(r.licencia&&r.licencia.from)ex.push('Lic'); if(r.fdsLibre)ex.push('FDS'); if(r.libres&&r.libres.length)ex.push(r.libres.length+'L');
   return {txt:base+(ex.length?' · '+ex.join(','):''),cls:'fij'}; }
 function renderWorkers(){ var q=($('wSearch').value||'').toLowerCase();
   var ws=workersOfTerminal().filter(function(w){ return !q||w.nombre.toLowerCase().indexOf(q)>=0||w.rol.indexOf(q)>=0; });
@@ -610,15 +690,18 @@ function openModal(rol){ modalRol=rol; var w=DISPATCHERS.filter(function(d){retu
   var memLast=state.memory[rol]||'';
   $('modalWho').textContent=w.nombre+' · Rol '+w.rol;
   var opts=[['ROTATIVO','Rotativo normal','Rota semanalmente entre los turnos activos']];
-  if(state.shifts.M.active) opts.push(['FIJO_M','Turno fijo mañana','Siempre 08:00–16:00']);
-  if(state.shifts.T.active) opts.push(['FIJO_T','Turno fijo tarde','Siempre 16:00–00:00']);
-  if(state.shifts.N.active) opts.push(['FIJO_N','Turno fijo noche','Siempre 00:00–08:00']);
-  if(state.shifts.A.active) opts.push(['FIJO_A','Turno fijo 05:00–13:00','Siempre 05:00–13:00']);
-  if(state.shifts.B.active) opts.push(['FIJO_B','Turno fijo 14:00–22:00','Siempre 14:00–22:00']);
-  if(state.shifts.C.active) opts.push(['FIJO_C','Turno fijo 13:00–21:00','Siempre 13:00–21:00']);
+  SHIFT_ORDER.forEach(function(s){ if(state.shifts[s].active) opts.push(['FIJO_'+s,'Turno fijo '+SHIFT_DEFS[s].label.toLowerCase(),'Siempre '+SHIFT_DEFS[s].time]); });
   var html='<div class="mlbl">Modalidad de turno</div><div class="radio-grid" id="mradio">';
   opts.forEach(function(o){ html+='<label class="ropt'+(r.mode===o[0]?' sel':'')+'"><input type="radio" name="mode" value="'+o[0]+'" '+(r.mode===o[0]?'checked':'')+'><div><div class="rl">'+o[1]+'</div><div class="rd">'+o[2]+'</div></div></label>'; });
   html+='</div>';
+  var ld=(r.fixedDays!=='LV');
+  html+='<div class="ropt" id="fixedDaysBox" style="cursor:default;align-items:center;justify-content:space-between;margin-top:8px;'+(r.mode&&r.mode.indexOf('FIJO')===0?'':'display:none')+'"><div><div class="rl">Días del turno fijo</div><div class="rd">Lunes a viernes (descansa fines de semana) o lunes a domingo</div></div>'+
+    '<div style="display:flex;gap:6px"><button type="button" class="segbtn'+(!ld?' on':'')+'" data-fd="LV">L–V</button><button type="button" class="segbtn'+(ld?' on':'')+'" data-fd="LD">L–D</button></div></div>';
+  var wsCur=r.weekendShift||'L';
+  var wsOpts='<option value="L"'+(wsCur==='L'?' selected':'')+'>Libre</option>';
+  SHIFT_ORDER.forEach(function(s){ if(state.shifts[s].active) wsOpts+='<option value="'+s+'"'+(wsCur===s?' selected':'')+'>'+SHIFT_DEFS[s].label+' ('+SHIFT_DEFS[s].time+')</option>'; });
+  html+='<div class="ropt" id="weekendBox" style="cursor:default;flex-direction:column;align-items:stretch;margin-top:8px;'+((r.mode&&r.mode.indexOf('FIJO')===0&&r.fixedDays==='LV')?'':'display:none')+'"><div class="rl" style="margin-bottom:4px">Fin de semana (solo L–V)</div><div class="rd" style="margin-bottom:6px">Qué hace sábado y domingo. Si es Tarde, el lunes se programa a las 10:00 para respetar las 10 h de descanso.</div><select id="weekendShift">'+wsOpts+'</select></div>';
+  html+='<div class="ropt" style="cursor:default;align-items:center;justify-content:space-between;margin-top:8px"><div><div class="rl">Reemplazo nocturno</div><div class="rd">Puede cubrir turnos de noche aunque tenga otro turno fijo</div></div><label class="toggle"><input type="checkbox" id="reemNoc" '+(r.reemplazoNocturno?'checked':'')+'><span class="tk"></span></label></div>';
   html+='<div class="mlbl" style="margin-top:16px">Ausencias y descansos (se combinan)</div>';
   html+='<div class="ropt" style="cursor:default;align-items:center;justify-content:space-between"><div><div class="rl">Fin de semana libre</div><div class="rd">Asigna un sábado y domingo completos libres en el mes</div></div><label class="toggle"><input type="checkbox" id="fdsLibre" '+(r.fdsLibre?'checked':'')+'><span class="tk"></span></label></div>';
   html+='<div class="ropt" style="cursor:default;flex-direction:column;align-items:stretch;margin-top:8px"><div class="rl" style="margin-bottom:6px">Vacaciones (rango)</div><div class="row2"><input type="date" id="vacFrom" value="'+(r.vacaciones.from||'')+'"><input type="date" id="vacTo" value="'+(r.vacaciones.to||'')+'"></div></div>';
@@ -626,13 +709,17 @@ function openModal(rol){ modalRol=rol; var w=DISPATCHERS.filter(function(d){retu
   html+='<div class="ropt" style="cursor:default;flex-direction:column;align-items:stretch;margin-top:8px"><div class="rl" style="margin-bottom:6px">Días libres en fecha específica</div><div class="addhol"><input type="date" id="libInput"><button class="btn sm" id="libAdd">Agregar</button></div><div class="hol-list" id="libList"></div></div>';
   html+='<div class="ropt" style="cursor:default;flex-direction:column;align-items:stretch;margin-top:8px"><div class="rl" style="margin-bottom:4px">Último día libre del mes anterior</div><div class="rd" style="margin-bottom:6px">Solo para el primer mes; luego se memoriza automáticamente. Evita superar los 6 días seguidos al iniciar el mes.</div><input type="date" id="lastFree" value="'+(r.lastFree||memLast||'')+'"></div>';
   $('modalBody').innerHTML=html;
-  $('mradio').querySelectorAll('.ropt').forEach(function(lo){ lo.onclick=function(){ $('mradio').querySelectorAll('.ropt').forEach(function(x){x.classList.remove('sel');}); lo.classList.add('sel'); lo.querySelector('input').checked=true; }; });
+  var fdSel = r.fixedDays || 'LD';
+  function syncFixedBox(){ var m=$('mradio').querySelector('input:checked').value; var fijo=(m.indexOf('FIJO')===0);
+    $('fixedDaysBox').style.display=fijo?'':'none'; $('weekendBox').style.display=(fijo&&fdSel==='LV')?'':'none'; }
+  $('mradio').querySelectorAll('.ropt').forEach(function(lo){ lo.onclick=function(){ $('mradio').querySelectorAll('.ropt').forEach(function(x){x.classList.remove('sel');}); lo.classList.add('sel'); lo.querySelector('input').checked=true; syncFixedBox(); }; });
+  $('fixedDaysBox').querySelectorAll('.segbtn').forEach(function(b){ b.onclick=function(){ fdSel=this.dataset.fd; $('fixedDaysBox').querySelectorAll('.segbtn').forEach(function(x){x.classList.toggle('on',x.dataset.fd===fdSel);}); syncFixedBox(); }; });
   var tmp=r.libres.slice();
   function rl(){ var le=$('libList'); le.innerHTML=''; tmp.forEach(function(dt,i){ var c=document.createElement('span'); c.className='hol'; c.style.background='var(--c-Lb)'; c.style.color='var(--c-Lt)'; c.style.borderColor='var(--line)'; c.innerHTML='<span>'+dt+'</span><span class="x" style="color:var(--muted)">×</span>'; c.querySelector('.x').onclick=function(){tmp.splice(i,1);rl();}; le.appendChild(c); }); }
   rl(); $('libAdd').onclick=function(){ var v=$('libInput').value; if(v&&tmp.indexOf(v)<0){tmp.push(v);tmp.sort();rl();$('libInput').value='';} };
   $('modalSave').onclick=function(){ var mode=$('mradio').querySelector('input:checked').value;
-    var nr={mode:mode,libres:tmp.slice(),vacaciones:{from:$('vacFrom').value,to:$('vacTo').value},licencia:{from:$('licFrom').value,to:$('licTo').value},fdsLibre:$('fdsLibre').checked,lastFree:$('lastFree').value};
-    var isDef=mode==='ROTATIVO'&&!nr.libres.length&&!nr.vacaciones.from&&!nr.licencia.from&&!nr.fdsLibre&&!nr.lastFree;
+    var nr={mode:mode,libres:tmp.slice(),vacaciones:{from:$('vacFrom').value,to:$('vacTo').value},licencia:{from:$('licFrom').value,to:$('licTo').value},fdsLibre:$('fdsLibre').checked,lastFree:$('lastFree').value,reemplazoNocturno:$('reemNoc').checked,fixedDays:(mode.indexOf('FIJO')===0?fdSel:undefined),weekendShift:(mode.indexOf('FIJO')===0&&fdSel==='LV'?$('weekendShift').value:undefined)};
+    var isDef=mode==='ROTATIVO'&&!nr.libres.length&&!nr.vacaciones.from&&!nr.licencia.from&&!nr.fdsLibre&&!nr.lastFree&&!nr.reemplazoNocturno;
     if(isDef) delete state.restrictions[modalRol]; else state.restrictions[modalRol]=nr; closeModal(); renderWorkers(); };
   $('modalClear').onclick=function(){ delete state.restrictions[modalRol]; closeModal(); renderWorkers(); };
   $('modalBg').classList.add('open'); }
@@ -669,6 +756,7 @@ function generate(){ var ws=workersOfTerminal().map(function(w){ var r=state.res
   try{ renderUncovered(); }catch(e){ console.error(e); }
   try{ renderLegal(); }catch(e){ console.error(e); }
   try{ renderExtra(); }catch(e){ console.error(e); }
+  try{ renderOvertime(); }catch(e){ console.error(e); }
   $('btnXlsx').disabled=false; $('genDot').className='dot live';
   $('genLabel').textContent='Programación lista · '+state.terminal+' · '+MONTHS_ES[state.month-1]+' '+state.year;
   switchView('sched'); }
@@ -743,8 +831,9 @@ function renderUncovered(){ var R=state.result, un=R.cov.uncovered; $('uncovEmpt
     tb.appendChild(tr); }); t.appendChild(tb); }
 
 function renderLegal(){ var R=state.result, mi=R.monthInfo, days=mi.days; $('legalEmpty').style.display='none'; $('legalContent').style.display='block';
-  var problems=0, rowsV=R.rows.map(function(rr){ var v=validateRow(rr.row,days,rr.startRun);
-    v.okLibres=v.libres>=mi.redDays||(v.lm+v.vac)>0; v.okDom=v.domLibres>=2||(v.lm+v.vac)>0; v.okRun=v.maxRun<=6; v.okRest=v.issues.filter(function(x){return x.indexOf('Descanso')>=0;}).length===0;
+  var problems=0, rowsV=R.rows.map(function(rr){ var v=validateRow(rr.row,days,rr.startRun); var rst=rr.worker.restriction||{};
+    var isLV=(rst.mode&&rst.mode.indexOf('FIJO')===0&&rst.fixedDays==='LV');
+    v.okLibres=isLV||v.libres>=mi.redDays||(v.lm+v.vac)>0; v.okDom=isLV||v.domLibres>=2||(v.lm+v.vac)>0; v.okRun=v.maxRun<=6; v.okRest=v.issues.filter(function(x){return x.indexOf('Descanso')>=0;}).length===0;
     v.allOK=v.okLibres&&v.okDom&&v.okRun&&v.okRest; if(!v.allOK) problems++; return {rr:rr,v:v}; });
   var badge=$('legalBadge'); badge.textContent=problems; badge.className='badge'+(problems?'':' zero');
   $('legalKpis').innerHTML='<div class="kpi"><div class="k">Días rojos del mes</div><div class="v">'+mi.redDays+'</div></div><div class="kpi"><div class="k">Cumplen norma</div><div class="v ok">'+(R.rows.length-problems)+'</div></div><div class="kpi"><div class="k">Con observaciones</div><div class="v '+(problems?'warn':'ok')+'">'+problems+'</div></div>';
@@ -760,6 +849,29 @@ function renderExtra(){ var R=state.result, ex=R.extra||[]; var badge=$('extraBa
   $('extraKpis').innerHTML='<div class="kpi"><div class="k">Descansos adicionales otorgados</div><div class="v warn">'+ex.length+'</div></div><div class="kpi"><div class="k">Sobre la cuota</div><div class="v">días rojos + 1</div></div>';
   var t=$('extraTable'); t.innerHTML='<thead><tr><th>Despachador</th><th>Rol</th><th>Fecha</th><th>Motivo</th></tr></thead>';
   var tb=document.createElement('tbody'); ex.forEach(function(e){ var tr=document.createElement('tr'); tr.innerHTML='<td><b>'+e.nombre+'</b></td><td class="mono">'+e.rol+'</td><td class="mono">'+e.date+'</td><td>'+e.reason+'</td>'; tb.appendChild(tr); }); t.appendChild(tb); }
+
+function renderOvertime(){ var R=state.result, ot=R.overtime; if(!ot){ return; }
+  $('otEmpty').style.display='none'; $('otContent').style.display='block';
+  var workers=Object.keys(ot.byWorker).map(function(rol){return {rol:rol,nombre:ot.byWorker[rol].nombre,hours:ot.byWorker[rol].hours};}).filter(function(x){return x.hours>0;}).sort(function(a,b){return b.hours-a.hours;});
+  $('otKpis').innerHTML='<div class="kpi"><div class="k">Horas extra del terminal (mes)</div><div class="v '+(ot.total?'warn':'ok')+'">'+ot.total+' h</div></div>'+
+    '<div class="kpi"><div class="k">Promedio diario</div><div class="v">'+(ot.total/R.monthInfo.D).toFixed(1)+' h</div></div>'+
+    '<div class="kpi"><div class="k">Sin turno adyacente</div><div class="v '+(ot.unassigned?'bad':'ok')+'">'+ot.unassigned+' h</div></div>';
+  // por trabajador
+  var t=$('otByWorker'); t.innerHTML='<thead><tr><th>Despachador</th><th>Rol</th><th class="center">Horas extra (mes)</th></tr></thead>';
+  var tb=document.createElement('tbody');
+  if(!workers.length) tb.innerHTML='<tr><td colspan="3" style="padding:20px;text-align:center;color:var(--muted)">Sin horas extra atribuidas.</td></tr>';
+  workers.forEach(function(x){ var tr=document.createElement('tr'); tr.innerHTML='<td><b>'+x.nombre+'</b></td><td class="mono">'+x.rol+'</td><td class="center mono"><b>'+x.hours+' h</b></td>'; tb.appendChild(tr); });
+  t.appendChild(tb);
+  // por día
+  var t2=$('otByDay'); t2.innerHTML='<thead><tr><th>Fecha</th><th>Día</th><th class="center">Horas sin cubrir</th><th>Tramos sin cobertura</th></tr></thead>';
+  var tb2=document.createElement('tbody');
+  ot.perDay.forEach(function(p){ if(!p.gapHours) return; var ranges=gapsToRanges(p.gaps);
+    var tr=document.createElement('tr'); tr.innerHTML='<td class="mono">'+p.date+'</td><td>'+DOW_ES[p.dow]+'</td><td class="center mono"><b>'+p.gapHours+' h</b></td><td class="mono" style="color:var(--muted)">'+ranges+'</td>'; tb2.appendChild(tr); });
+  if(!tb2.children.length) tb2.innerHTML='<tr><td colspan="4" style="padding:20px;text-align:center;color:var(--ok)">✓ Cobertura 24/7 completa todos los días.</td></tr>';
+  t2.appendChild(tb2); }
+function gapsToRanges(gaps){ if(!gaps.length) return '—'; var out=[], s=gaps[0], p=gaps[0];
+  for(var i=1;i<gaps.length;i++){ if(gaps[i]===p+1){ p=gaps[i]; } else { out.push(pad(s)+':00–'+pad(p+1)+':00'); s=gaps[i]; p=gaps[i]; } }
+  out.push(pad(s)+':00–'+pad(p+1)+':00'); return out.join(', '); }
 
 /* ===================== EXCEL ===================== */
 function xlFill(hex){ return {patternType:'solid',fgColor:{rgb:hex}}; }
@@ -805,6 +917,16 @@ function doExportExcel(){ var R=state.result, mi=R.monthInfo, days=mi.days; var 
   var wsx=XLSX.utils.aoa_to_sheet(x2); wsx['!cols']=[{wch:30},{wch:8},{wch:13},{wch:60}]; wsx['!merges']=[{s:{r:0,c:0},e:{r:0,c:3}}];
   styleCell(wsx,0,0,{font:{bold:true,sz:13,name:'Arial'}}); for(var hx=0;hx<4;hx++) styleCell(wsx,2,hx,{font:{bold:true,sz:9,name:'Arial',color:{rgb:'FFFFFF'}},fill:xlFill('1C2C3D'),border:allB});
   XLSX.utils.book_append_sheet(wb,wsx,'Descansos adicionales');
+  // horas extras
+  var ot=R.overtime||{byWorker:{},perDay:[],total:0,unassigned:0};
+  var o2=[['Horas extras (cobertura 24/7) — '+R.terminal+' — '+MONTHS_ES[R.month-1]+' '+R.year],['Total terminal: '+ot.total+' h · sin turno adyacente: '+ot.unassigned+' h'],[],['Despachador','Rol','Horas extra (mes)']];
+  Object.keys(ot.byWorker).map(function(rol){return [ot.byWorker[rol].nombre,rol,ot.byWorker[rol].hours];}).filter(function(x){return x[2]>0;}).sort(function(a,b){return b[2]-a[2];}).forEach(function(r2){ o2.push(r2); });
+  o2.push([]); o2.push(['Horas sin cobertura por día']); o2.push(['Fecha','Día','Horas','Tramos']);
+  ot.perDay.forEach(function(p){ if(p.gapHours) o2.push([p.date,DOW_ES[p.dow],p.gapHours,gapsToRanges(p.gaps)]); });
+  var wso=XLSX.utils.aoa_to_sheet(o2); wso['!cols']=[{wch:30},{wch:8},{wch:16},{wch:30}]; wso['!merges']=[{s:{r:0,c:0},e:{r:0,c:3}},{s:{r:1,c:0},e:{r:1,c:3}}];
+  styleCell(wso,0,0,{font:{bold:true,sz:13,name:'Arial'}}); styleCell(wso,1,0,{font:{sz:10,name:'Arial',color:{rgb:'5D6B7A'}}});
+  for(var ho=0;ho<4;ho++) styleCell(wso,3,ho,{font:{bold:true,sz:9,name:'Arial',color:{rgb:'FFFFFF'}},fill:xlFill('1C2C3D'),border:allB});
+  XLSX.utils.book_append_sheet(wb,wso,'Horas extras');
   // validación
   var l2=[['Validación normativa laboral — '+R.terminal+' — '+MONTHS_ES[R.month-1]+' '+R.year],['Días rojos: '+mi.redDays+' · libres = días rojos (máx +1) · 2 domingos · ≤6 seguidos · ≥10 h'],[],['Despachador','Rol','Modalidad','Días libres','Dom. libres','Máx. seguidos','Descanso ≥10h','Días trab.','Lic','Vac','Estado']];
   R.rows.forEach(function(rr){ var v=validateRow(rr.row,days,rr.startRun); var okL=v.libres>=mi.redDays||(v.lm+v.vac)>0, okD=v.domLibres>=2||(v.lm+v.vac)>0, okR=v.maxRun<=6, okRest=v.issues.filter(function(x){return x.indexOf('Descanso')>=0;}).length===0;
