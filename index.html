@@ -692,6 +692,103 @@ function rebalance(rows,monthInfo,activeSh,demand){
       }
       if(!done) break;
     } }); });
+  // (L1) Días laborales (L-V no festivos) con máximo 1 libre: reubicación EXHAUSTIVA
+  // Prueba todos los trabajadores libres del día, todos los días destino y todos los turnos legales.
+  // Si la transición vecina bloquea, intenta intercambiar el turno del día vecino con otro compañero.
+  function libsAt(d){ var arr=[]; rows.forEach(function(rr,w){ if(rr.row[d]==='L') arr.push(w); }); return arr; }
+  function isWorkday(d){ return !days[d].isWeekend && !days[d].isHoliday; }
+  function trySwapNeighbor(w,d){ var rr=rows[w];
+    var nbs=[d-1,d+1].filter(function(x){return x>=0&&x<n&&isShift(rr.row[x]);});
+    for(var ni=0;ni<nbs.length;ni++){ var nd=nbs[ni];
+      for(var v=0;v<rows.length;v++){ if(v===w) continue; var vv=rows[v];
+        if(!isShift(vv.row[nd])||vv.row[nd]===rr.row[nd]) continue;
+        if(isFixed(v)||locked(v)) continue;
+        var a=rr.row[nd], b=vv.row[nd]; rr.row[nd]=b; vv.row[nd]=a;
+        if(validateRow(rr.row,days,rr.startRun).issues.length===0 && validateRow(vv.row,days,vv.startRun).issues.length===0
+           && sundayRestedRow(rr.row)>=2 && sundayRestedRow(vv.row)>=2) return true;
+        rr.row[nd]=a; vv.row[nd]=b;
+      } }
+    return false; }
+  // Intercambio de libre entre dos trabajadores: A (libre en d) cubre el turno deficitario;
+  // B (turno sobredotado en d) toma el libre; en otro día Y intercambian al revés (cuotas neutras).
+  function tryLibSwap(d){
+    var dd=days[d]; var c=counts(d);
+    var unders=activeSh.filter(function(s){ return c[s]<minOf(s,dd) && !(s==='N'&&c['N']>=capRaw('N',dd.isWeekend||dd.isHoliday)); });
+    if(!unders.length) return false;
+    for(var ui=0; ui<unders.length; ui++){ var U=unders[ui];
+      for(var a=0; a<rows.length; a++){ var ra=rows[a], rsa=ra.worker.restriction||{};
+        if(ra.row[d]!=='L'||isFixed(a)||locked(a)) continue;
+        if((rsa.libres||[]).indexOf(days[d].date)>=0) continue;
+        if(!legalShiftFor(ra,d,U)) continue;
+        for(var b=0; b<rows.length; b++){ if(b===a) continue; var rb=rows[b], rsb=rb.worker.restriction||{};
+          var O=rb.row[d]; if(!isShift(O)||isFixed(b)||locked(b)) continue;
+          if(c[O]<=minOf(O,dd)) continue;
+          for(var Y=0; Y<n; Y++){ if(Y===d) continue;
+            if(rb.row[Y]!=='L') continue;
+            if((rsb.libres||[]).indexOf(days[Y].date)>=0) continue;
+            var SAY=ra.row[Y]; if(!isShift(SAY)) continue;
+            var a1=ra.row[d], a2=ra.row[Y], b1=rb.row[d], b2=rb.row[Y];
+            ra.row[d]=U; ra.row[Y]='L'; rb.row[d]='L'; rb.row[Y]=SAY;
+            if(validateRow(ra.row,days,ra.startRun).issues.length===0 && validateRow(rb.row,days,rb.startRun).issues.length===0
+               && sundayRestedRow(ra.row)>=2 && sundayRestedRow(rb.row)>=2) return true;
+            ra.row[d]=a1; ra.row[Y]=a2; rb.row[d]=b1; rb.row[Y]=b2;
+          }
+        }
+      }
+    }
+    return false; }
+  function tryRelocateLib(d,relax){
+    var libs=libsAt(d);
+    var dest=[]; for(var d2=0;d2<n;d2++){ if(d2===d) continue;
+      if(isWorkday(d2)){ if(libsAt(d2).length===0) dest.push({d:d2,p:0}); }
+      else dest.push({d:d2,p:1+libsAt(d2).length}); }
+    dest.sort(function(a,b){ return a.p-b.p; });
+    for(var li=0; li<libs.length; li++){
+      var w=libs[li], rr=rows[w], rstr=rr.worker.restriction||{};
+      if(isFixed(w)||locked(w)) continue;
+      if((rstr.libres||[]).indexOf(days[d].date)>=0) continue;
+      var cD=counts(d);
+      var shifts2=activeSh.filter(function(s){ if(s==='N'&&cD['N']>=capRaw('N',days[d].isWeekend||days[d].isHoliday)) return false; if(relax&&cD[s]>=minOf(s,days[d])) return false; return true; })
+        .sort(function(a,b){ return (cD[a]-minOf(a,days[d]))-(cD[b]-minOf(b,days[d])); });
+      for(var di=0; di<dest.length; di++){
+        var d2=dest[di].d; var sh=rr.row[d2]; if(!isShift(sh)) continue;
+        var c2=counts(d2);
+        if(!relax && c2[sh]<=minOf(sh,days[d2])) continue;
+        if(relax && sh==='N') continue; // nunca dejar la noche bajo mínimo por traslado
+        for(var si=0; si<shifts2.length; si++){
+          var S=shifts2[si]; if(!legalShiftFor(rr,d,S)) continue;
+          var a=rr.row[d], b=rr.row[d2]; rr.row[d]=S; rr.row[d2]='L';
+          if(validateRow(rr.row,days,rr.startRun).issues.length===0 && sundayRestedRow(rr.row)>=2) return true;
+          rr.row[d]=a; rr.row[d2]=b;
+        }
+      }
+    }
+    return false; }
+  for(var iter=0; iter<4; iter++){
+    var movedAny=false;
+    var wdIdx=[]; for(var dq=0;dq<n;dq++){ if(isWorkday(dq)) wdIdx.push(dq); }
+    wdIdx.sort(function(a,b){ return libsAt(b).length-libsAt(a).length; });
+    for(var wi2=0; wi2<wdIdx.length; wi2++){ var d=wdIdx[wi2];
+      var guard=0;
+      while(libsAt(d).length>=2 && guard++<10){
+        var moved=tryRelocateLib(d,false);
+        if(!moved){
+          var libs=libsAt(d), swapped=false;
+          for(var li2=0; li2<libs.length && !swapped; li2++){ var w2=libs[li2];
+            if(isFixed(w2)||locked(w2)) continue;
+            var rst2=rows[w2].worker.restriction||{};
+            if((rst2.libres||[]).indexOf(days[d].date)>=0) continue;
+            if(trySwapNeighbor(w2,d)) swapped=true;
+          }
+          if(swapped) moved=tryRelocateLib(d,false);
+        }
+        if(!moved) moved=tryRelocateLib(d,true); // trasladar el déficit: 1 y 1 mejor que 2 y 0
+        if(!moved) moved=tryLibSwap(d); // intercambio de libre: cubre el déficit aunque queden 2 libres
+        if(moved) movedAny=true; else break;
+      }
+    }
+    if(!movedAny) break;
+  }
   enforceMax();
 }
 function runEngine(cfg){
