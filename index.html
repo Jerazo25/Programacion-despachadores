@@ -19,6 +19,7 @@
   --c-A:#159b8a; --c-Ab:#dff5f1; --c-At:#06463d;
   --c-B:#8a52c9; --c-Bb:#f0e7fb; --c-Bt:#42206f;
   --c-C:#c98a14; --c-Cb:#fdf0d6; --c-Ct:#6b4a00;
+  --c-D:#5a9e2f; --c-Db:#e7f5da; --c-Dt:#2e5a12;
   --c-L:#cfd8e0; --c-Lb:#f2f5f8; --c-Lt:#5d6b7a;
   --c-LM:#cf3d3d; --c-LMb:#fbe6e6; --c-LMt:#7a1414;
   --c-VAC:#0d8a9e; --c-VACb:#e0f4f7; --c-VACt:#064450;
@@ -137,7 +138,7 @@ thead .colname{z-index:9}
 .s-M{background:var(--c-Mb);color:var(--c-Mt)} .s-T{background:var(--c-Tb);color:var(--c-Tt)}
 .s-N{background:var(--c-Nb);color:var(--c-Nt)} .s-A{background:var(--c-Ab);color:var(--c-At)}
 .s-B{background:var(--c-Bb);color:var(--c-Bt)} .s-L{background:var(--c-Lb);color:var(--c-Lt)}
-.s-C{background:var(--c-Cb);color:var(--c-Ct)}
+.s-C{background:var(--c-Cb);color:var(--c-Ct)} .s-D{background:var(--c-Db);color:var(--c-Dt)}
 .s-LM{background:var(--c-LMb);color:var(--c-LMt)} .s-VAC{background:var(--c-VACb);color:var(--c-VACt)}
 .cell.editable{cursor:pointer} .cell.editable:hover{outline:2px solid var(--accent);outline-offset:-2px}
 .cellmenu{position:fixed;z-index:200;background:#fff;border:1px solid var(--line);border-radius:9px;box-shadow:0 10px 30px rgba(15,27,41,.28);padding:4px;max-height:300px;overflow:auto}
@@ -191,6 +192,7 @@ tr.section-lbl td{background:var(--ink2);color:#fff;text-align:left;padding:6px 
   <div class="status" id="genStatus"><span class="dot" id="genDot"></span><span id="genLabel">Sin programación generada</span></div>
   <button class="btn primary" id="btnGen">Generar programación</button>
   <button class="btn ghost" id="btnXlsx" disabled>Descargar Excel</button>
+  <button class="btn ghost" id="btnGeo" disabled>Exportar Geo Victoria</button>
 </div>
 <div class="tabs">
   <button class="tab active" data-view="config">1 · Configuración</button>
@@ -344,9 +346,12 @@ var SHIFT_DEFS = {
   T:{id:'T',label:'Tarde',time:'16:00–23:00',start:16,end:23,std:true},
   A:{id:'A',label:'Turno 05–12',time:'05:00–12:00',start:5,end:12,std:false},
   C:{id:'C',label:'Turno 10–17',time:'10:00–17:00',start:10,end:17,std:false},
-  B:{id:'B',label:'Turno 14–21',time:'14:00–21:00',start:14,end:21,std:false}
+  B:{id:'B',label:'Turno 14–21',time:'14:00–21:00',start:14,end:21,std:false},
+  D:{id:'D',label:'Turno 12–19',time:'12:00–19:00',start:12,end:19,std:false}
 };
-var SHIFT_ORDER=['N','M','T','A','C','B'];
+var SHIFT_ORDER=['N','M','T','A','C','B','D'];
+var GEO_CODES={N:'276',M:'332',T:'330',A:'331',C:'253',B:'107',D:'405',L:'DL',LM:'LM',VAC:'VA'};
+var TERMINAL_CODES={'LOS ABEDULES':211,'LOS PINOS':238,'LOS NOGALES':241,'LOS ROBLES':212,'LAS ARAUCARIAS':249,'LOS ESPINOS':251,'LOS ACACIOS':262,'LOS LINGUES':263,'LAS PALMAS':243,'LAS PARRAS':267,'LOS GUINDOS':272};
 var STATE_DEFS={L:{label:'Libre',cls:'s-L'},LM:{label:'Licencia médica',cls:'s-LM'},VAC:{label:'Vacaciones',cls:'s-VAC'}};
 var REST_MIN=10, ENGINE_NW=0, ENGINE_EXTRA=[];
 function pad(n){return n<10?'0'+n:''+n;}
@@ -373,7 +378,7 @@ function buildWorkerRow(worker,monthInfo,offset,seed,rotShifts,dayTarget){
   var days=monthInfo.days, redDays=monthInfo.redDays, n=days.length;
   var row=new Array(n).fill(null);
   var r=worker.restriction||{};
-  var fixedMap={FIJO_M:'M',FIJO_T:'T',FIJO_N:'N',FIJO_A:'A',FIJO_B:'B',FIJO_C:'C'};
+  var fixedMap={FIJO_M:'M',FIJO_T:'T',FIJO_N:'N',FIJO_A:'A',FIJO_B:'B',FIJO_C:'C',FIJO_D:'D'};
   var fixed=fixedMap[r.mode]||null;
   var userLibres={}; (r.libres||[]).forEach(function(x){userLibres[x]=1;});
   days.forEach(function(dd,i){
@@ -467,13 +472,22 @@ function rebalance(rows,monthInfo,activeSh,demand){
   function isFixed(w){ var r=rows[w].worker.restriction||{}; return !!(r.mode&&r.mode.indexOf('FIJO')===0); }
   function isFixedN(w){ var r=rows[w].worker.restriction||{}; return r.mode==='FIJO_N'; }
   function reemplazoN(w){ var r=rows[w].worker.restriction||{}; return !!r.reemplazoNocturno; }
+  function allowedAlt(w,target,d){ var r=rows[w].worker.restriction||{}; if(!r.mode||r.mode.indexOf('FIJO')!==0) return true;
+    var fm={FIJO_M:'M',FIJO_T:'T',FIJO_N:'N',FIJO_A:'A',FIJO_B:'B',FIJO_C:'C',FIJO_D:'D'};
+    // Fijo L-V con turno de fin de semana: en sábado/domingo su turno propio es el weekendShift (no el fijo)
+    if(d!==undefined && r.fixedDays==='LV' && r.weekendShift && r.weekendShift!=='L' && (days[d].dow===0||days[d].dow===6)){
+      return (r.altShifts||[]).indexOf(target)>=0;
+    }
+    if(fm[r.mode]===target) return true;
+    if((r.altShifts||[]).indexOf(target)>=0) return true;
+    return false; }
   function staffed(s){ return demand[s].weekday>0||demand[s].weekend>0; }
   var dayTargets=activeSh.filter(function(s){return s!=='N'&&staffed(s);}); var dayTarget=dayTargets.length?dayTargets[0]:(activeSh.filter(function(s){return s!=='N';})[0]||'M');
   function legalAt(w,d,target){ var prev=d>0?rows[w].row[d-1]:null, next=d<n-1?rows[w].row[d+1]:null;
     if(isShift(prev)&&(SHIFT_DEFS[target].start+24)-SHIFT_DEFS[prev].end<REST_MIN) return false;
     if(isShift(next)&&(SHIFT_DEFS[next].start+24)-SHIFT_DEFS[target].end<REST_MIN) return false; return true; }
   function canTake(w,d,target){ var cur=rows[w].row[d]; if(!isShift(cur)||cur===target)return false;
-    if(isFixed(w)&&!(target==='N'&&reemplazoN(w))) return false; return legalAt(w,d,target); }
+    if(isFixed(w)&&!allowedAlt(w,target,d)&&!(target==='N'&&reemplazoN(w))) return false; return legalAt(w,d,target); }
   function counts(d){var c={};activeSh.forEach(function(s){c[s]=0;});rows.forEach(function(rr){if(c[rr.row[d]]!==undefined)c[rr.row[d]]++;});return c;}
   // (A) tope estricto noche
   if(activeSh.indexOf('N')>=0){ var nWD=capRaw('N',false), nWE=capRaw('N',true);
@@ -501,9 +515,11 @@ function rebalance(rows,monthInfo,activeSh,demand){
       while(gd++<60){ var cnt={}; dayShifts.forEach(function(s){cnt[s]=wkCount(s);});
         var hi=null,lo=null; dayShifts.forEach(function(s){ if(hi===null||cnt[s]>cnt[hi])hi=s; if(lo===null||cnt[s]<cnt[lo])lo=s; });
         if(cnt[hi]-cnt[lo]<2) break; var moved=false;
-        for(var w=0;w<rows.length&&!moved;w++){ if(isFixed(w)||locked(w)) continue; var rr=rows[w];
-          var hasHi=idxs.some(function(i){return rr.row[i]===hi;}), hasLo=idxs.some(function(i){return rr.row[i]===lo;});
-          if(!hasHi||hasLo) continue;
+        var cand2=[]; for(var w0=0;w0<rows.length;w0++){ if(locked(w0)) continue; if(isFixed(w0)&&!allowedAlt(w0,lo)) continue; var rr0=rows[w0];
+          var hasHi0=idxs.some(function(i){return rr0.row[i]===hi;}), hasLo0=idxs.some(function(i){return rr0.row[i]===lo;});
+          if(!hasHi0||hasLo0) continue; var tot=0; rr0.row.forEach(function(c){if(c===hi)tot++;}); cand2.push({w:w0,tot:tot}); }
+        cand2.sort(function(a,b){return b.tot-a.tot;});
+        for(var ci=0;ci<cand2.length&&!moved;ci++){ var w=cand2[ci].w; var rr=rows[w];
           var saved=idxs.map(function(i){return rr.row[i];});
           idxs.forEach(function(i){ if(rr.row[i]===hi) rr.row[i]=lo; });
           if(validateRow(rr.row,days,rr.startRun).issues.length===0) moved=true; else idxs.forEach(function(i,k){ rr.row[i]=saved[k]; });
@@ -527,9 +543,12 @@ function rebalance(rows,monthInfo,activeSh,demand){
         if(!src||sSc<=0) break;
         if(wc(under)+1>capW(under)) break;
         var moved=false;
-        for(var w=0;w<rows.length&&!moved;w++){ if(isFixed(w)||locked(w)) continue; var rr=rows[w];
-          var hasSrc=idxs.some(function(i){return rr.row[i]===src;}), hasU=idxs.some(function(i){return rr.row[i]===under;});
-          if(!hasSrc||hasU) continue;
+        var candA=[]; for(var w0=0;w0<rows.length;w0++){ if(locked(w0)) continue;
+          if(isFixed(w0)&&!allowedAlt(w0,under)) continue; var rr0=rows[w0];
+          var hasSrc0=idxs.some(function(i){return rr0.row[i]===src;}), hasU0=idxs.some(function(i){return rr0.row[i]===under;});
+          if(!hasSrc0||hasU0) continue; var tot=0; rr0.row.forEach(function(c){if(c===src)tot++;}); candA.push({w:w0,tot:tot}); }
+        candA.sort(function(a,b){return b.tot-a.tot;});
+        for(var ci=0;ci<candA.length&&!moved;ci++){ var w=candA[ci].w; var rr=rows[w];
           var saved=idxs.map(function(i){return rr.row[i];}); idxs.forEach(function(i){ if(rr.row[i]===src) rr.row[i]=under; });
           if(validateRow(rr.row,days,rr.startRun).issues.length===0) moved=true; else idxs.forEach(function(i,k){ rr.row[i]=saved[k]; });
         }
@@ -546,6 +565,53 @@ function rebalance(rows,monthInfo,activeSh,demand){
         var sD=rows[w].row[d], sN=rows[w].row[nd]; rows[w].row[d]='N'; rows[w].row[nd]='L';
         if(validateRow(rows[w].row,days,rows[w].startRun).issues.length===0) moved=true; else { rows[w].row[d]=sD; rows[w].row[nd]=sN; } }); }
       off=fixedNights.filter(function(ww){return rows[ww].row[d]==='L';}); if(!moved) break; } } }
+  // (B2) Desconflicto nocturno GENERALIZADO: en cada semana, los trabajadores asignados a noche
+  // (fijos o rotativos en su semana de noche) nunca libran el mismo día -> siempre queda >=1 en noche
+  function nightDeconflict(){ if(activeSh.indexOf('N')<0) return;
+    var wksB={}; days.forEach(function(dd,i){(wksB[dd.week]=wksB[dd.week]||[]).push(i);});
+    Object.keys(wksB).map(Number).sort(function(a,b){return a-b;}).forEach(function(wk){
+      var idxs=wksB[wk];
+      var nightW=[]; rows.forEach(function(rr,w){ var nC=0; idxs.forEach(function(i){ if(rr.row[i]==='N') nC++; }); if(nC>=2) nightW.push(w); });
+      if(nightW.length<2) return;
+      idxs.forEach(function(d){
+        var off=nightW.filter(function(w){ return rows[w].row[d]==='L'; });
+        var guard=0;
+        while(off.length>=2 && guard++<6){
+          var moved=false;
+          for(var oi=0; oi<off.length && !moved; oi++){ var w=off[oi]; var rr=rows[w]; var rstr=rr.worker.restriction||{};
+            if(locked(w)) continue; if((rstr.libres||[]).indexOf(days[d].date)>=0) continue;
+            // mover su descanso a otro día de la semana donde trabaja N y ningún otro nocturno libra
+            for(var k=0; k<idxs.length && !moved; k++){ var nd=idxs[k]; if(nd===d||rr.row[nd]!=='N') continue;
+              if(nightW.some(function(o){ return o!==w && rows[o].row[nd]==='L'; })) continue;
+              var a=rr.row[d], b=rr.row[nd]; rr.row[d]='N'; rr.row[nd]='L';
+              if(validateRow(rr.row,days,rr.startRun).issues.length===0 && sundayOK(rr.row)) moved=true;
+              else { rr.row[d]=a; rr.row[nd]=b; }
+            }
+            // si el conflicto es en domingo: intercambiar por OTRO domingo (mantiene sus 2 domingos)
+            if(!moved && days[d].isSunday){
+              [false,true].forEach(function(relaxS){ if(moved) return;
+              for(var s2i=0; s2i<n && !moved; s2i++){ if(!days[s2i].isSunday||s2i===d) continue;
+                var sh2=rr.row[s2i]; if(!isShift(sh2)) continue;
+                if(sh2!=='N' && !relaxS){ var c2=counts(s2i); if(c2[sh2]<=minOf(sh2,days[s2i])) continue; }
+                if(relaxS && sh2==='N') continue;
+                // no crear conflicto nocturno nuevo en s2: nocturnos de esa semana librando s2
+                var wk2=days[s2i].week; var idxs2=[]; days.forEach(function(dd2,j){ if(dd2.week===wk2) idxs2.push(j); });
+                var nW2=[]; rows.forEach(function(r2,w2){ var nc=0; idxs2.forEach(function(j){ if(r2.row[j]==='N') nc++; }); if(nc>=2) nW2.push(w2); });
+                if(sh2==='N' && nW2.some(function(o){ return o!==w && rows[o].row[s2i]==='L'; })) continue;
+                if(nW2.indexOf(w)>=0 && nW2.some(function(o){ return o!==w && rows[o].row[s2i]==='L'; })) continue;
+                var a2=rr.row[d], b2=rr.row[s2i]; rr.row[d]='N'; rr.row[s2i]='L';
+                if(validateRow(rr.row,days,rr.startRun).issues.length===0 && sundayOK(rr.row)) moved=true;
+                else { rr.row[d]=a2; rr.row[s2i]=b2; }
+              } });
+            }
+          }
+          off=nightW.filter(function(w2){ return rows[w2].row[d]==='L'; });
+          if(!moved) break;
+        }
+      });
+    });
+  }
+  nightDeconflict();
   // (C) cobertura de déficits
   days.forEach(function(dd,d){ var g=0; while(g++<400){ var c=counts(d);
     var unders=activeSh.filter(function(s){return c[s]<minOf(s,dd);}); if(!unders.length) break; var moved=false;
@@ -602,6 +668,33 @@ function rebalance(rows,monthInfo,activeSh,demand){
     if(c[hi]-c[lo]<2||c[hi]<=minOf(hi,dd)) break; if(c[lo]>=capRaw(lo,dd.isWeekend)) break;
     var mv=false; for(var w=0;w<rows.length&&!mv;w++){ if(rows[w].row[d]===hi&&canTake(w,d,lo)){ rows[w].row[d]=lo; mv=true; } }
     if(!mv) break; } });
+  // (S1) Balanceo de descansos dominicales: repartir los domingos libres entre los domingos del mes
+  // para que cada domingo tenga la dotación necesaria (caso 6 personas / 3 turnos / 4 domingos)
+  (function(){
+    var sunIdx=days.map(function(dd,i){return dd.isSunday?i:-1;}).filter(function(i){return i>=0;});
+    if(sunIdx.length<2) return;
+    function restAt(i){ var c=0; rows.forEach(function(rr){ var v=rr.row[i]; if(v==='L'||v==='LM'||v==='VAC') c++; }); return c; }
+    var g=0;
+    while(g++<80){
+      var hi=-1, lo=-1;
+      sunIdx.forEach(function(i){ if(hi<0||restAt(i)>restAt(hi)) hi=i; if(lo<0||restAt(i)<restAt(lo)) lo=i; });
+      if(hi<0||lo<0||restAt(hi)-restAt(lo)<2) break;
+      var moved=false, cHi=counts(hi);
+      var targets=activeSh.filter(function(s){ return !(s==='N'&&cHi['N']>=capRaw('N',true)); })
+        .sort(function(a,b){ return (cHi[a]-minOf(a,days[hi]))-(cHi[b]-minOf(b,days[hi])); });
+      for(var w=0;w<rows.length&&!moved;w++){ var rr=rows[w], rstr=rr.worker.restriction||{};
+        if(rr.row[hi]!=='L'||isFixed(w)||locked(w)) continue;
+        if((rstr.libres||[]).indexOf(days[hi].date)>=0) continue;
+        if(!isShift(rr.row[lo])) continue;
+        for(var ti=0; ti<targets.length && !moved; ti++){ var S=targets[ti]; if(!legalShiftFor(rr,hi,S)) continue;
+          var a=rr.row[hi], b=rr.row[lo]; rr.row[hi]=S; rr.row[lo]='L';
+          if(validateRow(rr.row,days,rr.startRun).issues.length===0 && sundayOK(rr.row)) moved=true;
+          else { rr.row[hi]=a; rr.row[lo]=b; }
+        }
+      }
+      if(!moved) break;
+    }
+  })();
   // (F) optimización domingos
   var sundays=days.map(function(dd,i){return dd.isSunday?i:-1;}).filter(function(i){return i>=0;});
   activeSh.forEach(function(sh){ sundays.forEach(function(s){ var dd=days[s], g=0;
@@ -627,25 +720,31 @@ function rebalance(rows,monthInfo,activeSh,demand){
       var a=rr.row[mn], b=rr.row[mx]; rr.row[mn]=work; rr.row[mx]='L';
       // mantener >=2 domingos descansados y validez
       var v=validateRow(rr.row,days,rr.startRun);
-      var domOK=sundayRestedRow(rr.row)>=2;
+      var domOK=sundayOK(rr.row);
       if(v.issues.length===0 && domOK) moved=true; else { rr.row[mn]=a; rr.row[mx]=b; }
     }
     if(!moved) break;
   }
-  function baseShift_G(rr,d){ var rstr=rr.worker.restriction||{}; var fm={FIJO_M:'M',FIJO_T:'T',FIJO_N:'N',FIJO_A:'A',FIJO_C:'C',FIJO_B:'B'};
+  function baseShift_G(rr,d){ var rstr=rr.worker.restriction||{}; var fm={FIJO_M:'M',FIJO_T:'T',FIJO_N:'N',FIJO_A:'A',FIJO_C:'C',FIJO_B:'B',FIJO_D:'D'};
     if(fm[rstr.mode]) return fm[rstr.mode];
     // turno de la semana segun vecinos trabajados
     for(var k=1;k<7;k++){ if(d-k>=0&&isShift(rr.row[d-k])) return rr.row[d-k]; if(d+k<n&&isShift(rr.row[d+k])) return rr.row[d+k]; }
     return dayTarget; }
   function sundayRestedRow(row){ var x=0; days.forEach(function(dd,i){ if(dd.isSunday&&(row[i]==='L'||row[i]==='LM'||row[i]==='VAC')) x++; }); return x; }
+  function sundayOK(row){ var rested=0,lOnly=0; days.forEach(function(dd,i){ if(!dd.isSunday) return; var v=row[i];
+    if(v==='L'){rested++;lOnly++;} else if(v==='LM'||v==='VAC'){rested++;} });
+    return rested>=2 && lOnly<=2; }
   function enforceMax(){ days.forEach(function(dd,d){ ['N'].forEach(function(O){ if(activeSh.indexOf(O)<0) return; var g=0;
     while(g++<60){ var c=counts(d); var capO=capRaw(O,dd.isWeekend||dd.isHoliday); if(c[O]<=capO) break;
-      var target=null;
-      activeSh.forEach(function(s){ if(target!==null||s===O) return; if(c[s]<minOf(s,dd)) target=s; });
-      if(target===null) activeSh.forEach(function(s){ if(target!==null||s===O||!staffed(s)) return; target=s; });
       var done=false;
-      if(target!==null){ for(var w=0;w<rows.length&&!done;w++){ if(rows[w].row[d]===O&&canTake(w,d,target)){ rows[w].row[d]=target; done=true; } } }
+      // probar TODOS los destinos: primero turnos bajo mínimo, luego cualquier turno dotado
+      var tgts=activeSh.filter(function(s){return s!==O&&c[s]<minOf(s,dd);})
+        .concat(activeSh.filter(function(s){return s!==O&&c[s]>=minOf(s,dd)&&staffed(s);}));
+      for(var ti=0; ti<tgts.length && !done; ti++){ var target=tgts[ti];
+        for(var w=0;w<rows.length&&!done;w++){ if(rows[w].row[d]===O&&canTake(w,d,target)){ rows[w].row[d]=target; done=true; } } }
       if(!done){ for(var w2=0;w2<rows.length&&!done;w2++){ if(rows[w2].row[d]===O&&!isFixed(w2)&&!locked(w2)){ rows[w2].row[d]='L'; done=true; } } }
+      // último recurso: reemplazos nocturnos (fijos) vuelven a libre para no superar el tope
+      if(!done){ for(var w4=0;w4<rows.length&&!done;w4++){ if(rows[w4].row[d]===O&&reemplazoN(w4)&&!locked(w4)){ rows[w4].row[d]='L'; done=true; } } }
       if(!done) break;
     } }); }); }
   enforceMax();
@@ -669,7 +768,7 @@ function rebalance(rows,monthInfo,activeSh,demand){
       var work=null; for(var ti=0;ti<targets.length;ti++){ if(legalShiftFor(rr,mxd,targets[ti])){ work=targets[ti]; break; } }
       if(!work) continue;
       var a=rr.row[mxd], b=rr.row[mnd]; rr.row[mxd]=work; rr.row[mnd]='L';
-      if(validateRow(rr.row,days,rr.startRun).issues.length===0 && sundayRestedRow(rr.row)>=2) moved=true; else { rr.row[mxd]=a; rr.row[mnd]=b; }
+      if(validateRow(rr.row,days,rr.startRun).issues.length===0 && sundayOK(rr.row)) moved=true; else { rr.row[mxd]=a; rr.row[mnd]=b; }
     }
     if(moved){ stuck={}; } else { stuck[mxd]=1; }
   }
@@ -686,7 +785,7 @@ function rebalance(rows,monthInfo,activeSh,demand){
         for(var d2=0;d2<n&&!done;d2++){ if(d2===d) continue; var sh=rr.row[d2]; if(!isShift(sh)) continue;
           var c2=counts(d2); if(c2[sh]<=minOf(sh,days[d2])) continue;
           var a=rr.row[d], b=rr.row[d2]; rr.row[d]=U; rr.row[d2]='L';
-          if(validateRow(rr.row,days,rr.startRun).issues.length===0 && sundayRestedRow(rr.row)>=2) done=true;
+          if(validateRow(rr.row,days,rr.startRun).issues.length===0 && sundayOK(rr.row)) done=true;
           else { rr.row[d]=a; rr.row[d2]=b; }
         }
       }
@@ -705,7 +804,7 @@ function rebalance(rows,monthInfo,activeSh,demand){
         if(isFixed(v)||locked(v)) continue;
         var a=rr.row[nd], b=vv.row[nd]; rr.row[nd]=b; vv.row[nd]=a;
         if(validateRow(rr.row,days,rr.startRun).issues.length===0 && validateRow(vv.row,days,vv.startRun).issues.length===0
-           && sundayRestedRow(rr.row)>=2 && sundayRestedRow(vv.row)>=2) return true;
+           && sundayOK(rr.row) && sundayRestedRow(vv.row)>=2) return true;
         rr.row[nd]=a; vv.row[nd]=b;
       } }
     return false; }
@@ -730,7 +829,7 @@ function rebalance(rows,monthInfo,activeSh,demand){
             var a1=ra.row[d], a2=ra.row[Y], b1=rb.row[d], b2=rb.row[Y];
             ra.row[d]=U; ra.row[Y]='L'; rb.row[d]='L'; rb.row[Y]=SAY;
             if(validateRow(ra.row,days,ra.startRun).issues.length===0 && validateRow(rb.row,days,rb.startRun).issues.length===0
-               && sundayRestedRow(ra.row)>=2 && sundayRestedRow(rb.row)>=2) return true;
+               && sundayOK(ra.row) && sundayOK(rb.row)) return true;
             ra.row[d]=a1; ra.row[Y]=a2; rb.row[d]=b1; rb.row[Y]=b2;
           }
         }
@@ -758,7 +857,7 @@ function rebalance(rows,monthInfo,activeSh,demand){
         for(var si=0; si<shifts2.length; si++){
           var S=shifts2[si]; if(!legalShiftFor(rr,d,S)) continue;
           var a=rr.row[d], b=rr.row[d2]; rr.row[d]=S; rr.row[d2]='L';
-          if(validateRow(rr.row,days,rr.startRun).issues.length===0 && sundayRestedRow(rr.row)>=2) return true;
+          if(validateRow(rr.row,days,rr.startRun).issues.length===0 && sundayOK(rr.row)) return true;
           rr.row[d]=a; rr.row[d2]=b;
         }
       }
@@ -789,11 +888,58 @@ function rebalance(rows,monthInfo,activeSh,demand){
     }
     if(!movedAny) break;
   }
+  nightDeconflict();
+  // (N0/F2) Cobertura final: turnos bajo mínimo se cubren reubicando libres (incluye domingos/festivos);
+  // la noche además puede tomar gente de turnos de día (prioridad noche, déficit trasladado fuera de N)
+  for(var dN=0; dN<n; dN++){ var ddN=days[dN]; var gN=0;
+    while(gN++<6){
+      var cF=counts(dN);
+      var anyUnder=activeSh.some(function(s){ return cF[s]<minOf(s,ddN); });
+      if(!anyUnder) break;
+      var mvN=tryRelocateLib(dN,false);
+      if(!mvN) mvN=tryRelocateLib(dN,true);
+      if(!mvN) mvN=tryLibSwap(dN);
+      if(!mvN) break;
+    }
+    // prioridad noche: si sigue bajo mínimo, trasladar desde un turno de día (primero con holgura)
+    if(activeSh.indexOf('N')>=0){ var gT=0;
+      while(counts(dN)['N']<minOf('N',ddN) && counts(dN)['N']<capRaw('N',ddN.isWeekend||ddN.isHoliday) && gT++<3){
+        var cD2=counts(dN);
+        var srcs=activeSh.filter(function(s){ return s!=='N'&&cD2[s]>0; })
+          .sort(function(a,b){ return (cD2[b]-minOf(b,ddN))-(cD2[a]-minOf(a,ddN)); });
+        var done=false;
+        for(var si2=0; si2<srcs.length && !done; si2++){ var O=srcs[si2];
+          if(counts(dN)['N']>0 && cD2[O]<=minOf(O,ddN)) continue; // déficit trasladado solo si noche en 0 o hay holgura
+          for(var w3=0; w3<rows.length && !done; w3++){ if(rows[w3].row[dN]!==O) continue;
+            if(isFixed(w3)&&!allowedAlt(w3,'N',dN)&&!reemplazoN(w3)) continue; if(locked(w3)) continue;
+            if(!legalAt(w3,dN,'N')) continue;
+            rows[w3].row[dN]='N';
+            if(validateRow(rows[w3].row,days,rows[w3].startRun).issues.length===0) done=true;
+            else rows[w3].row[dN]=O;
+          }
+        }
+        if(!done) break;
+      }
+    }
+  }
   enforceMax();
+}
+/* Mejor orden cíclico de rotación: minimiza transiciones semana-a-semana que rompen las 10 h */
+function bestRotationOrder(shifts){
+  if(shifts.length<=1) return shifts.slice();
+  var best=null, bestBad=1e9;
+  function perm(arr,k){ if(k===arr.length){ var bad=0;
+      for(var i=0;i<arr.length;i++){ var a=arr[i], b=arr[(i+1)%arr.length]; if(!gapOK(a,b)) bad++; }
+      if(bad<bestBad){ bestBad=bad; best=arr.slice(); } return; }
+    for(var j=k;j<arr.length;j++){ var t=arr[k];arr[k]=arr[j];arr[j]=t; perm(arr,k+1); t=arr[k];arr[k]=arr[j];arr[j]=t; } }
+  perm(shifts.slice(),0);
+  return best||shifts.slice();
 }
 function runEngine(cfg){
   ENGINE_EXTRA=[]; var monthInfo=buildMonth(cfg.year,cfg.month,cfg.holidays); ENGINE_NW=cfg.workers.length;
-  var rotShifts=['M','T','N'].filter(function(s){return cfg.activeShifts.indexOf(s)>=0;});
+  var staffedSh=cfg.activeShifts.filter(function(s){ return cfg.demand[s]&&(cfg.demand[s].weekday>0||cfg.demand[s].weekend>0); });
+  if(!staffedSh.length) staffedSh=cfg.activeShifts.slice();
+  var rotShifts=bestRotationOrder(staffedSh);
   var dayTargets=cfg.activeShifts.filter(function(s){return s!=='N';});
   var dayTarget=dayTargets.length?dayTargets[0]:(cfg.activeShifts[0]||'M');
   var rotCount=0;
@@ -839,7 +985,8 @@ var state={
   terminal:null, year:2026, month:7, holidays:[],
   shifts:{ M:{active:true,weekday:2,weekend:1,maxWeekday:null,maxWeekend:null}, T:{active:true,weekday:2,weekend:1,maxWeekday:null,maxWeekend:null},
            N:{active:true,weekday:2,weekend:1,maxWeekday:2,maxWeekend:1}, A:{active:false,weekday:1,weekend:0,maxWeekday:null,maxWeekend:null},
-           B:{active:false,weekday:1,weekend:0,maxWeekday:null,maxWeekend:null}, C:{active:true,weekday:0,weekend:0,maxWeekday:null,maxWeekend:null} },
+           B:{active:false,weekday:1,weekend:0,maxWeekday:null,maxWeekend:null}, C:{active:true,weekday:0,weekend:0,maxWeekday:null,maxWeekend:null},
+           D:{active:false,weekday:1,weekend:0,maxWeekday:null,maxWeekend:null} },
   restrictions:{}, overrides:{}, memory:{}, result:null
 };
 function effTerminal(rol){ return state.overrides[rol] || (DISPATCHERS.filter(function(d){return d.rol===rol;})[0]||{}).terminal; }
@@ -864,7 +1011,7 @@ function init(){
   loadHolidays(); renderTerminfo(); renderDemand(); renderWorkers();
   $('wSearch').oninput=renderWorkers;
   $('btnAddHol').onclick=function(){ var v=$('holInput').value; if(v){ if(!state.holidays.some(function(h){return h[0]===v;})){ state.holidays.push([v,'Feriado agregado']); state.holidays.sort(function(a,b){return a[0]<b[0]?-1:1;}); } renderHolidays(); $('holInput').value=''; renderTerminfo(); } };
-  $('btnGen').onclick=generate; $('btnXlsx').onclick=exportExcel;
+  $('btnGen').onclick=generate; $('btnXlsx').onclick=exportExcel; $('btnGeo').onclick=exportGeo;
   document.querySelectorAll('.tab').forEach(function(tab){ tab.onclick=function(){ switchView(tab.dataset.view); if(tab.dataset.view==='terminales') renderTerminales(); }; });
   $('modalCancel').onclick=closeModal; $('modalBg').onclick=function(e){if(e.target===$('modalBg'))closeModal();};
 }
@@ -902,8 +1049,8 @@ function renderDemand(){ var t=$('demandTable');
     else state.shifts[s][k]=Math.max(0,parseInt(this.value||'0',10)); }; }); }
 function restrLabel(r){ if(!r||!r.mode||r.mode==='ROTATIVO'){ var ex=[]; if(r){ if(r.lunSab)ex.push('L–S'); if(r.reemplazoNocturno)ex.push('reemp.noche'); if(r.vacaciones&&r.vacaciones.from)ex.push('Vacaciones'); if(r.licencia&&r.licencia.from)ex.push('Licencia'); if(r.fdsLibre)ex.push('FDS libre'); if(r.libres&&r.libres.length)ex.push(r.libres.length+' libre(s)'); }
     return ex.length?{txt:'Rotativo · '+ex.join(', '),cls:'aus'}:{txt:'Rotativo normal',cls:'rot'}; }
-  var map={FIJO_M:'Fijo mañana',FIJO_T:'Fijo tarde',FIJO_N:'Fijo noche',FIJO_A:'Fijo 05–12',FIJO_B:'Fijo 14–21',FIJO_C:'Fijo 10–17'};
-  var base=map[r.mode]||'Rotativo', ex=[]; if(r.mode&&r.mode.indexOf('FIJO')===0){ base+=(r.fixedDays==='LV'?' (L–V)':' (L–D)'); if(r.fixedDays==='LV'&&r.weekendShift&&r.weekendShift!=='L'&&SHIFT_DEFS[r.weekendShift]) base+=' + FDS '+SHIFT_DEFS[r.weekendShift].label.toLowerCase(); }
+  var map={FIJO_M:'Fijo mañana',FIJO_T:'Fijo tarde',FIJO_N:'Fijo noche',FIJO_A:'Fijo 05–12',FIJO_B:'Fijo 14–21',FIJO_C:'Fijo 10–17',FIJO_D:'Fijo 12–19'};
+  var base=map[r.mode]||'Rotativo', ex=[]; if(r.mode&&r.mode.indexOf('FIJO')===0){ base+=(r.fixedDays==='LV'?' (L–V)':' (L–D)'); if(r.fixedDays==='LV'&&r.weekendShift&&r.weekendShift!=='L'&&SHIFT_DEFS[r.weekendShift]) base+=' + FDS '+SHIFT_DEFS[r.weekendShift].label.toLowerCase(); if(r.altShifts&&r.altShifts.length) base+=' +'+r.altShifts.length+' turnos'; }
   if(r.lunSab)ex.push('L–S'); if(r.reemplazoNocturno)ex.push('reemp.noche'); if(r.vacaciones&&r.vacaciones.from)ex.push('Vac'); if(r.licencia&&r.licencia.from)ex.push('Lic'); if(r.fdsLibre)ex.push('FDS'); if(r.libres&&r.libres.length)ex.push(r.libres.length+'L');
   return {txt:base+(ex.length?' · '+ex.join(','):''),cls:'fij'}; }
 function renderWorkers(){ var q=($('wSearch').value||'').toLowerCase();
@@ -936,8 +1083,11 @@ function openModal(rol){ modalRol=rol; var w=DISPATCHERS.filter(function(d){retu
     '<div style="display:flex;gap:6px"><button type="button" class="segbtn'+(!ld?' on':'')+'" data-fd="LV">L–V</button><button type="button" class="segbtn'+(ld?' on':'')+'" data-fd="LD">L–D</button></div></div>';
   var wsCur=r.weekendShift||'T';
   var wsOpts='<option value="L"'+(wsCur==='L'?' selected':'')+'>Libre (descansa sábado y domingo)</option>';
-  ['T','M','N','A','B','C'].forEach(function(s){ wsOpts+='<option value="'+s+'"'+(wsCur===s?' selected':'')+'>'+SHIFT_DEFS[s].label+' ('+SHIFT_DEFS[s].time+')</option>'; });
+  ['T','M','N','A','B','C','D'].forEach(function(s){ wsOpts+='<option value="'+s+'"'+(wsCur===s?' selected':'')+'>'+SHIFT_DEFS[s].label+' ('+SHIFT_DEFS[s].time+')</option>'; });
   html+='<div class="ropt" id="weekendBox" style="cursor:default;flex-direction:column;align-items:stretch;margin-top:8px;'+((r.mode&&r.mode.indexOf('FIJO')===0&&r.fixedDays==='LV')?'':'display:none')+'"><div class="rl" style="margin-bottom:4px">Fin de semana (solo L–V)</div><div class="rd" style="margin-bottom:6px">Qué hace sábado y domingo. Si es Tarde, el lunes siguiente a un domingo trabajado se programa automáticamente a las 10:00–17:00 (no requiere activar ese turno en el Paso 2).</div><select id="weekendShift">'+wsOpts+'</select></div>';
+  var alts=r.altShifts||[];
+  var altHtml=''; SHIFT_ORDER.forEach(function(s){ altHtml+='<label style="display:flex;align-items:center;gap:7px;font-size:12.5px;padding:4px 0"><input type="checkbox" class="altShift" value="'+s+'" '+(alts.indexOf(s)>=0?'checked':'')+'><span class="swatch" style="background:var(--c-'+s+')"></span>'+SHIFT_DEFS[s].label+' ('+SHIFT_DEFS[s].time+')</label>'; });
+  html+='<div class="ropt" id="altBox" style="cursor:default;flex-direction:column;align-items:stretch;margin-top:8px;'+(r.mode&&r.mode.indexOf('FIJO')===0?'':'display:none')+'"><div class="rl" style="margin-bottom:4px">Turnos adicionales permitidos</div><div class="rd" style="margin-bottom:6px">El sistema podrá programarlo también en estos turnos cuando convenga para la cobertura (además de su turno fijo).</div>'+altHtml+'</div>';
   html+='<div class="ropt" style="cursor:default;align-items:center;justify-content:space-between;margin-top:8px"><div><div class="rl">Reemplazo nocturno</div><div class="rd">Puede cubrir turnos de noche aunque tenga otro turno fijo (cuando el nocturno libra)</div></div><label class="toggle"><input type="checkbox" id="reemNoc" '+(r.reemplazoNocturno?'checked':'')+'><span class="tk"></span></label></div>';
   html+='<div class="ropt" style="cursor:default;align-items:center;justify-content:space-between;margin-top:8px"><div><div class="rl">Lunes a sábado</div><div class="rd">Trabaja de lunes a sábado: domingos y festivos siempre libres</div></div><label class="toggle"><input type="checkbox" id="lunSab" '+(r.lunSab?'checked':'')+'><span class="tk"></span></label></div>';
   html+='<div class="mlbl" style="margin-top:16px">Ausencias y descansos (se combinan)</div>';
@@ -949,14 +1099,17 @@ function openModal(rol){ modalRol=rol; var w=DISPATCHERS.filter(function(d){retu
   $('modalBody').innerHTML=html;
   var fdSel = r.fixedDays || 'LD';
   function syncFixedBox(){ var m=$('mradio').querySelector('input:checked').value; var fijo=(m.indexOf('FIJO')===0);
-    $('fixedDaysBox').style.display=fijo?'':'none'; $('weekendBox').style.display=(fijo&&fdSel==='LV')?'':'none'; }
+    $('fixedDaysBox').style.display=fijo?'':'none'; $('weekendBox').style.display=(fijo&&fdSel==='LV')?'':'none'; $('altBox').style.display=fijo?'':'none'; }
   $('mradio').querySelectorAll('.ropt').forEach(function(lo){ lo.onclick=function(){ $('mradio').querySelectorAll('.ropt').forEach(function(x){x.classList.remove('sel');}); lo.classList.add('sel'); lo.querySelector('input').checked=true; syncFixedBox(); }; });
   $('fixedDaysBox').querySelectorAll('.segbtn').forEach(function(b){ b.onclick=function(){ fdSel=this.dataset.fd; $('fixedDaysBox').querySelectorAll('.segbtn').forEach(function(x){x.classList.toggle('on',x.dataset.fd===fdSel);}); syncFixedBox(); }; });
   var tmp=r.libres.slice();
   function rl(){ var le=$('libList'); le.innerHTML=''; tmp.forEach(function(dt,i){ var c=document.createElement('span'); c.className='hol'; c.style.background='var(--c-Lb)'; c.style.color='var(--c-Lt)'; c.style.borderColor='var(--line)'; c.innerHTML='<span>'+dt+'</span><span class="x" style="color:var(--muted)">×</span>'; c.querySelector('.x').onclick=function(){tmp.splice(i,1);rl();}; le.appendChild(c); }); }
   rl(); $('libAdd').onclick=function(){ var v=$('libInput').value; if(v&&tmp.indexOf(v)<0){tmp.push(v);tmp.sort();rl();$('libInput').value='';} };
   $('modalSave').onclick=function(){ var mode=$('mradio').querySelector('input:checked').value;
-    var nr={mode:mode,libres:tmp.slice(),vacaciones:{from:$('vacFrom').value,to:$('vacTo').value},licencia:{from:$('licFrom').value,to:$('licTo').value},fdsLibre:$('fdsLibre').checked,lastFree:$('lastFree').value,reemplazoNocturno:$('reemNoc').checked,lunSab:$('lunSab').checked,fixedDays:(mode.indexOf('FIJO')===0?fdSel:undefined),weekendShift:(mode.indexOf('FIJO')===0&&fdSel==='LV'?$('weekendShift').value:undefined)};
+    var altSel=[]; document.querySelectorAll('.altShift:checked').forEach(function(cb){ altSel.push(cb.value); });
+    var fm2={FIJO_M:'M',FIJO_T:'T',FIJO_N:'N',FIJO_A:'A',FIJO_B:'B',FIJO_C:'C',FIJO_D:'D'};
+    altSel=altSel.filter(function(s){ return s!==fm2[mode]; });
+    var nr={mode:mode,libres:tmp.slice(),vacaciones:{from:$('vacFrom').value,to:$('vacTo').value},licencia:{from:$('licFrom').value,to:$('licTo').value},fdsLibre:$('fdsLibre').checked,lastFree:$('lastFree').value,reemplazoNocturno:$('reemNoc').checked,lunSab:$('lunSab').checked,fixedDays:(mode.indexOf('FIJO')===0?fdSel:undefined),weekendShift:(mode.indexOf('FIJO')===0&&fdSel==='LV'?$('weekendShift').value:undefined),altShifts:(mode.indexOf('FIJO')===0&&altSel.length?altSel:undefined)};
     var isDef=mode==='ROTATIVO'&&!nr.libres.length&&!nr.vacaciones.from&&!nr.licencia.from&&!nr.fdsLibre&&!nr.lastFree&&!nr.reemplazoNocturno&&!nr.lunSab;
     if(isDef) delete state.restrictions[modalRol]; else state.restrictions[modalRol]=nr; closeModal(); renderWorkers(); };
   $('modalClear').onclick=function(){ delete state.restrictions[modalRol]; closeModal(); renderWorkers(); };
@@ -996,7 +1149,7 @@ function generate(){ var ws=workersOfTerminal().map(function(w){ var r=state.res
   try{ renderLegal(); }catch(e){ console.error(e); }
   try{ renderExtra(); }catch(e){ console.error(e); }
   try{ renderOvertime(); }catch(e){ console.error(e); }
-  $('btnXlsx').disabled=false; $('genDot').className='dot live';
+  $('btnXlsx').disabled=false; $('btnGeo').disabled=false; $('genDot').className='dot live';
   $('genLabel').textContent='Programación lista · '+state.terminal+' · '+MONTHS_ES[state.month-1]+' '+state.year;
   switchView('sched'); }
 
@@ -1118,14 +1271,40 @@ function gapsToRanges(gaps){ if(!gaps.length) return '—'; var out=[], s=gaps[0
 
 /* ===================== EXCEL ===================== */
 function xlFill(hex){ return {patternType:'solid',fgColor:{rgb:hex}}; }
-var XL_COLORS={M:'FFE7C2',T:'F8D2C4',N:'D5DAF2',A:'C8EDE6',B:'E2D2F4',C:'FCE2B8',L:'E6ECF1',LM:'F6CFCF',VAC:'CFEAEF'};
-var XL_TXT={M:'7A4D00',T:'7A2D12',N:'1C245E',A:'06463D',B:'42206F',C:'6B4A00',L:'5D6B7A',LM:'7A1414',VAC:'064450'};
+var XL_COLORS={M:'FFE7C2',T:'F8D2C4',N:'D5DAF2',A:'C8EDE6',B:'E2D2F4',C:'FCE2B8',D:'D7EFC8',L:'E6ECF1',LM:'F6CFCF',VAC:'CFEAEF'};
+var XL_TXT={M:'7A4D00',T:'7A2D12',N:'1C245E',A:'06463D',B:'42206F',C:'6B4A00',D:'2E5A12',L:'5D6B7A',LM:'7A1414',VAC:'064450'};
 function styleCell(ws,r,c,style){ var ref=XLSX.utils.encode_cell({r:r,c:c}); if(!ws[ref]) ws[ref]={t:'s',v:''}; ws[ref].s=style; }
 var XLSX_CDNS=['https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js','https://unpkg.com/xlsx-js-style@1.2.0/dist/xlsx.bundle.js','https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'];
 function loadScript(url){ return new Promise(function(res,rej){ var s=document.createElement('script'); s.src=url; s.onload=function(){res();}; s.onerror=function(){rej(url);}; document.head.appendChild(s); }); }
 function ensureXLSX(){ if(window.XLSX&&XLSX.utils) return Promise.resolve(); var p=Promise.reject(); XLSX_CDNS.forEach(function(u){ p=p.catch(function(){ if(window.XLSX&&XLSX.utils)return; return loadScript(u).then(function(){ if(!(window.XLSX&&XLSX.utils)) throw u; }); }); }); return p; }
 function exportExcel(){ if(!state.result){ alert('Primero genera la programación.'); return; }
   ensureXLSX().then(doExportExcel).catch(function(){ alert('No se pudo cargar la librería de Excel. Verifica tu conexión o abre el archivo descargado directamente en tu navegador.'); }); }
+function exportGeo(){ if(!state.result){ alert('Primero genera la programación.'); return; }
+  ensureXLSX().then(doExportGeo).catch(function(){ alert('No se pudo cargar la librería de Excel. Verifica tu conexión o abre el archivo descargado directamente en tu navegador.'); }); }
+function doExportGeo(){ var R=state.result, days=R.monthInfo.days; var wb=XLSX.utils.book_new();
+  var cc=TERMINAL_CODES[R.terminal];
+  if(cc===undefined){ alert('El terminal "'+R.terminal+'" no tiene código Geo Victoria registrado. Se exportará con la columna CC vacía.'); cc=''; }
+  var head=['CC','ROL']; days.forEach(function(dd){ head.push(dd.d); });
+  var aoa=[head];
+  R.rows.forEach(function(rr){
+    var rol=rr.worker.rol, rolV=(rol!==''&&!isNaN(+rol))?+rol:rol;
+    var line=[cc,rolV];
+    rr.row.forEach(function(c){ var code=GEO_CODES[c]!==undefined?GEO_CODES[c]:c; line.push((code!==''&&!isNaN(+code))?+code:code); });
+    aoa.push(line);
+  });
+  var ws=XLSX.utils.aoa_to_sheet(aoa);
+  var center={alignment:{horizontal:'center',vertical:'center'}};
+  var range=XLSX.utils.decode_range(ws['!ref']);
+  for(var rIdx=range.s.r; rIdx<=range.e.r; rIdx++){
+    for(var cIdx=range.s.c; cIdx<=range.e.c; cIdx++){
+      var ref=XLSX.utils.encode_cell({r:rIdx,c:cIdx});
+      if(!ws[ref]) ws[ref]={t:'s',v:''};
+      ws[ref].s={alignment:{horizontal:'center',vertical:'center'}};
+    }
+  }
+  ws['!cols']=[{wch:8},{wch:10}].concat(days.map(function(){return {wch:5};}));
+  XLSX.utils.book_append_sheet(wb,ws,'Hoja1');
+  XLSX.writeFile(wb,'GeoVictoria_'+R.terminal.replace(/\s+/g,'_')+'_'+R.year+'-'+pad(R.month)+'.xlsx'); }
 function doExportExcel(){ var R=state.result, mi=R.monthInfo, days=mi.days; var wb=XLSX.utils.book_new();
   var border={style:'thin',color:{rgb:'D8DEE6'}}, allB={top:border,bottom:border,left:border,right:border};
   var aoa=[['Programación de turnos — '+R.terminal+' — '+MONTHS_ES[R.month-1]+' '+R.year]];
