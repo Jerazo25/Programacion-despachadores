@@ -73,8 +73,10 @@ label.fld .lab{display:block;font-size:12px;font-weight:600;color:var(--muted);m
 select,input[type=text],input[type=number],input[type=date]{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px;font-family:inherit;font-size:14px;background:#fff;color:var(--ink)}
 select:focus,input:focus{outline:2px solid rgba(31,95,214,.25);border-color:var(--accent)}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.terminfo{background:var(--c-Nb);border:1px solid #c9d0ee;border-radius:8px;padding:11px 13px;font-size:12.5px;color:var(--c-Nt)}
-.terminfo b{font-family:'Archivo';font-size:20px;display:inline}
+.terminfo{background:var(--c-Nb);border:1px solid #c9d0ee;border-radius:8px;padding:12px 14px;font-size:13px;color:var(--c-Nt)}
+.terminfo .ti-row{display:flex;align-items:baseline;gap:7px;line-height:1.5}
+.terminfo .ti-num{font-family:'Archivo';font-size:17px;font-weight:700;min-width:22px}
+.terminfo .ti-sub{margin-top:7px;padding-top:7px;border-top:1px solid #c9d0ee;font-size:12px;opacity:.8}
 .demand{width:100%;border-collapse:collapse;font-size:13px}
 .demand th,.demand td{padding:7px 8px;text-align:center;border-bottom:1px solid var(--line2)}
 .demand th{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;font-weight:700}
@@ -148,6 +150,13 @@ thead .colname{z-index:9}
 .cell.edited::after{content:'';position:absolute;top:2px;right:2px;width:5px;height:5px;border-radius:50%;background:#d97706}
 .btn-undo{font-size:12px;font-weight:600;padding:5px 12px;border-radius:7px;border:1px solid #d97706;background:#fff7ed;color:#b45309;cursor:pointer;white-space:nowrap}
 .btn-undo:hover{background:#d97706;color:#fff}
+.manual{max-width:820px;line-height:1.6;color:var(--ink);font-size:14px}
+.manual .m-intro{font-size:14.5px;color:var(--muted);margin-bottom:6px}
+.manual h4{font-family:'Archivo';font-size:15px;margin:22px 0 6px;padding-bottom:5px;border-bottom:2px solid var(--c-Nb);color:var(--c-Nt)}
+.manual p{margin:6px 0}
+.manual ul{margin:6px 0 6px 2px;padding-left:18px}
+.manual li{margin:5px 0}
+.manual b{color:var(--ink);font-weight:700}
 .cellmenu{position:fixed;z-index:200;background:#fff;border:1px solid var(--line);border-radius:9px;box-shadow:0 10px 30px rgba(15,27,41,.28);padding:4px;max-height:300px;overflow:auto}
 .cellopt{display:flex;align-items:center;gap:8px;width:100%;border:0;background:transparent;padding:7px 10px;border-radius:6px;font-size:12px;cursor:pointer;text-align:left;font-family:inherit}
 .cellopt:hover{filter:brightness(.96);box-shadow:inset 0 0 0 1px var(--line)}
@@ -200,7 +209,7 @@ tr.section-lbl td{background:var(--ink2);color:#fff;text-align:left;padding:6px 
 <div class="topbar">
   <div class="brand">
     <div class="glyph">CT</div>
-    <div><h1>Programación mensual de despachadores <span class="vbadge">v2.9</span></h1><div class="sub">ASIGNACIÓN DE TURNOS · JORNADA 42 H</div></div>
+    <div><h1>Programación mensual de despachadores <span class="vbadge">v3.3</span></h1><div class="sub">ASIGNACIÓN DE TURNOS · JORNADA 42 H</div></div>
   </div>
   <div class="spacer"></div>
   <div class="status" id="genStatus"><span class="dot" id="genDot"></span><span id="genLabel">Sin programación generada</span></div>
@@ -217,6 +226,7 @@ tr.section-lbl td{background:var(--ink2);color:#fff;text-align:left;padding:6px 
   <button class="tab" data-view="ot">6 · Horas extras</button>
   <button class="tab" data-view="terminales">Despachadores</button>
   <button class="tab" data-view="changes">Cambios <span class="badge zero" id="changesBadge">0</span></button>
+  <button class="tab" data-view="manual">Manual</button>
 </div>
 <div class="wrap">
   <div class="view active" id="view-config">
@@ -254,7 +264,6 @@ tr.section-lbl td{background:var(--ink2);color:#fff;text-align:left;padding:6px 
           <div class="hd"><span class="eyebrow">Paso 2</span><h3>Turnos y dotación</h3></div>
           <div class="bd">
             <div style="overflow-x:auto"><table class="demand" id="demandTable"></table></div>
-            <div class="note"><b>Mín</b> = dotación requerida (dispara los turnos no cubiertos). <b>Máx</b> = tope por turno (en blanco = ∞). El máximo se aplica <b>estrictamente solo al turno noche</b>: su excedente se reubica en turno de día. En los turnos de día, si los mínimos ya están cubiertos, se programa al excedente igual (sobredotación permitida, no se manda a descanso). Nadie recibe más de <b>1 día libre adicional</b> sobre los días rojos. Nota: con tope nocturno estricto, los días en que un nocturno toma su libre la noche puede quedar corta (aparecerá en "Turnos no cubiertos"); para evitarlo, fija el mínimo de noche por debajo del máximo.</div>
           </div>
         </div>
         <div class="card">
@@ -340,6 +349,59 @@ tr.section-lbl td{background:var(--ink2);color:#fff;text-align:left;padding:6px 
       </div>
     </div>
   </div>
+  <div class="view" id="view-manual">
+    <div class="card">
+      <div class="hd"><span class="eyebrow">Ayuda</span><h3>Manual de uso de la plataforma</h3></div>
+      <div class="bd manual">
+        <p class="m-intro">Esta plataforma genera la programación mensual de turnos de despachadores, jefes y asistentes de patio, respetando la legislación laboral chilena (jornada de 42 horas semanales). A continuación se explica cómo usarla, paso a paso.</p>
+
+        <h4>1 · Configuración</h4>
+        <p>Es la pantalla de partida y reúne cuatro pasos:</p>
+        <ul>
+          <li><b>Paso 1 — Terminal y mes.</b> Elige el terminal, el mes y el año a programar. El recuadro muestra cuántos despachadores y cuántos jefes/asistentes tiene el terminal, además de los días del mes y los días rojos (domingos + feriados). Al cambiar de terminal o mes, si ya habías generado esa programación antes, se carga sola.</li>
+          <li><b>Paso 2 — Turnos y dotación.</b> Para cada turno defines el <b>mínimo</b> de personas requeridas entre semana y en fin de semana/festivo, y opcionalmente un <b>máximo</b>. Activa o desactiva turnos con el interruptor. El mínimo es lo que dispara los "turnos no cubiertos"; el máximo se aplica de forma estricta solo al turno noche, mientras que en los turnos de día se permite sobredotación para no otorgar más días libres de los legales.</li>
+          <li><b>Paso 3 — Feriados del mes.</b> Se cargan los feriados oficiales de Chile; puedes agregar o quitar fechas. Cuenta como día rojo, igual que los domingos.</li>
+          <li><b>Jefes y asistentes de patio.</b> Bajo el Paso 3 hay un cuadro aparte para la dotación de sus turnos propios (06–13, 07–14, 08–15, 14–21, 15–22). No tienen máximos.</li>
+          <li><b>Paso 4 — Restricciones por persona.</b> Haz clic en la etiqueta de cada trabajador para abrir su configuración: turno rotativo o fijo, días del turno fijo (L–V, L–S o L–D), turno de fin de semana, turnos adicionales permitidos, reemplazo nocturno, vacaciones, licencia médica y días libres puntuales. Los jefes y asistentes aparecen primero, con un color distinto.</li>
+        </ul>
+        <p>Cuando todo esté listo, presiona <b>Generar programación</b>.</p>
+
+        <h4>2 · Programación</h4>
+        <p>Muestra la grilla del mes. Arriba se ubican los jefes y asistentes de patio, y debajo los despachadores. Cada celda es el turno asignado ese día. <b>Haz clic en cualquier celda</b> para cambiar el turno a mano: la celda modificada queda marcada con un <b>borde ámbar</b> para que identifiques rápidamente lo que editaste. Bajo la grilla se ve la cobertura por turno y por día.</p>
+
+        <h4>3 · Turnos no cubiertos</h4>
+        <p>Lista los días y turnos donde no se alcanzó la dotación mínima definida en el Paso 2. Si está vacío, todos los mínimos quedaron cubiertos.</p>
+
+        <h4>4 · Validación legal</h4>
+        <p>Revisa el cumplimiento de la norma para cada trabajador (despachadores y personal de patio): cantidad de días libres, dos domingos libres al mes, máximo seis días seguidos y descanso mínimo de diez horas entre turnos. Lo que requiere atención se marca para revisión.</p>
+
+        <h4>5 · Descansos extra</h4>
+        <p>Reporta los días libres otorgados por encima de la cuota (días rojos + 1) cuando fue necesario para cubrir un turno respetando las diez horas de descanso.</p>
+
+        <h4>6 · Horas extras</h4>
+        <p>Calcula las horas extra <b>por trabajador</b> considerando cada día trabajado como ocho horas; lo que exceda de 42 horas en la semana (lunes a domingo) son horas extra, mostradas semana por semana. Aparte se informa la cobertura 24/7 del terminal.</p>
+
+        <h4>Despachadores</h4>
+        <p>Permite <b>trasladar</b> a cualquier persona de un terminal a otro, <b>eliminar</b> trabajadores (botón ×) y <b>agregar</b> nuevos con el formulario superior. Los cambios se guardan automáticamente.</p>
+
+        <h4>Cambios</h4>
+        <p>Registra cada modificación manual que haces en la grilla, con fecha y hora, mostrando el valor del sistema, el anterior y el nuevo. Puedes <b>deshacer</b> un cambio para que la celda vuelva al turno que entregó el sistema (y pierda el color ámbar). Se muestran solo los cambios del terminal seleccionado.</p>
+
+        <h4>Exportar</h4>
+        <ul>
+          <li><b>Descargar Excel.</b> Genera el reporte completo en varias hojas (programación, no cubiertos, descansos, horas extras).</li>
+          <li><b>Exportar Geo Victoria.</b> Genera el archivo con el formato exacto del portal: una fila por persona con los códigos de turno. Incluye a despachadores y asistentes; los jefes de patio se excluyen de este archivo.</li>
+        </ul>
+
+        <h4>Notas importantes</h4>
+        <ul>
+          <li>La programación, las ediciones manuales y los traslados se guardan en el navegador de este equipo. Si abres la plataforma en otro computador, no estarán esos datos.</li>
+          <li>Las restricciones por persona se aplican al generar; si cambias un mínimo después de generar, vuelve a presionar Generar.</li>
+          <li>El número de versión aparece junto al título, en la barra superior.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
 </div>
 <div class="modal-bg" id="modalBg">
   <div class="modal">
@@ -378,15 +440,15 @@ var YARD_STAFF=[{"rol": "3808", "rut": "10396144-0", "nombre": "ROBERTO ANTONIO 
 'use strict';
 /* ===================== MOTOR ===================== */
 var SHIFT_DEFS = {
-  N:{id:'N',label:'Noche',time:'00:00–07:00',start:0,end:7,std:true},
-  M:{id:'M',label:'Mañana',time:'08:00–15:00',start:8,end:15,std:true},
-  T:{id:'T',label:'Tarde',time:'16:00–23:00',start:16,end:23,std:true},
-  A:{id:'A',label:'Turno 05–12',time:'05:00–12:00',start:5,end:12,std:false},
-  C:{id:'C',label:'Turno 10–17',time:'10:00–17:00',start:10,end:17,std:false},
-  B:{id:'B',label:'Turno 14–21',time:'14:00–21:00',start:14,end:21,std:false},
-  D:{id:'D',label:'Turno 12–19',time:'12:00–19:00',start:12,end:19,std:false}
+  N:{id:'N',label:'00–07',time:'00:00–07:00',start:0,end:7,std:true},
+  M:{id:'M',label:'08–15',time:'08:00–15:00',start:8,end:15,std:true},
+  T:{id:'T',label:'16–23',time:'16:00–23:00',start:16,end:23,std:true},
+  A:{id:'A',label:'05–12',time:'05:00–12:00',start:5,end:12,std:false},
+  C:{id:'C',label:'10–17',time:'10:00–17:00',start:10,end:17,std:false},
+  B:{id:'B',label:'14–21',time:'14:00–21:00',start:14,end:21,std:false},
+  D:{id:'D',label:'12–19',time:'12:00–19:00',start:12,end:19,std:false}
 };
-var SHIFT_ORDER=['N','M','T','A','C','B','D'];
+var SHIFT_ORDER=['N','A','M','C','D','B','T'];
 var GEO_CODES={N:'276',M:'332',T:'330',A:'331',C:'253',B:'107',D:'405',L:'DL',LM:'LM',VAC:'VA'};
 /* Turnos de jefes y asistentes de patio (sin máximos; código Geo Victoria propio) */
 var YARD_SHIFT_DEFS={
@@ -1258,11 +1320,11 @@ function applyPeopleCustom(){ var p=peopleGet();
 var state={
   terminal:null, year:2026, month:7, holidays:[],
   shifts:{ M:{active:true,weekday:2,weekend:1,maxWeekday:null,maxWeekend:null}, T:{active:true,weekday:2,weekend:1,maxWeekday:null,maxWeekend:null},
-           N:{active:true,weekday:2,weekend:1,maxWeekday:2,maxWeekend:1}, A:{active:false,weekday:1,weekend:0,maxWeekday:null,maxWeekend:null},
-           B:{active:false,weekday:1,weekend:0,maxWeekday:null,maxWeekend:null}, C:{active:true,weekday:0,weekend:0,maxWeekday:null,maxWeekend:null},
+           N:{active:true,weekday:1,weekend:1,maxWeekday:1,maxWeekend:1}, A:{active:false,weekday:1,weekend:0,maxWeekday:null,maxWeekend:null},
+           B:{active:false,weekday:1,weekend:0,maxWeekday:null,maxWeekend:null}, C:{active:false,weekday:0,weekend:0,maxWeekday:null,maxWeekend:null},
            D:{active:false,weekday:1,weekend:0,maxWeekday:null,maxWeekend:null} },
   restrictions:{}, overrides:{}, memory:{}, result:null,
-  yardShifts:{ J1:{active:true,weekday:1,weekend:0}, J2:{active:false,weekday:0,weekend:0}, J3:{active:true,weekday:1,weekend:0}, J4:{active:false,weekday:0,weekend:0}, J5:{active:false,weekday:0,weekend:0} }
+  yardShifts:{ J1:{active:true,weekday:1,weekend:0}, J2:{active:false,weekday:0,weekend:0}, J3:{active:false,weekday:0,weekend:0}, J4:{active:true,weekday:1,weekend:0}, J5:{active:false,weekday:0,weekend:0} }
 };
 function isJefe(cargo){ return /JEFE/i.test(cargo||''); }
 function isAsistente(cargo){ return /ASISTENTE/i.test(cargo||''); }
@@ -1316,10 +1378,12 @@ function renderHolidays(){ var el=$('holList'); el.innerHTML=''; if(!state.holid
     chip.querySelector('.x').onclick=function(){state.holidays.splice(idx,1);renderHolidays();renderTerminfo();}; el.appendChild(chip); });
   $('holCount').textContent=state.holidays.length+' feriados'; }
 function renderTerminfo(){ var disp=dispatchersOfTerminal(), yard=yardOfTerminal(); var mi=buildMonth(state.year,state.month,state.holidays.map(function(h){return h[0];}));
-  var yardTxt=yard.length?(' · <b>'+yard.length+'</b> jefes/asistentes de patio'):'';
-  $('terminfo').innerHTML='<b>'+disp.length+'</b> despachadores en '+state.terminal+yardTxt+
-    '<div style="margin-top:6px;font-size:12px">'+MONTHS_ES[state.month-1]+' '+state.year+' · <b>'+mi.D+'</b> días · <b>'+mi.redDays+'</b> días rojos ('+mi.sundays+' domingos + '+state.holidays.length+' feriados)</div>'+
-    '<div style="margin-top:3px;font-size:12px">Días libres por persona: <b>'+mi.redDays+'</b> · exactamente <b>2 domingos</b> libres al mes</div>'; }
+  var feriados=state.holidays.length;
+  var yardLine=yard.length?('<div class="ti-row"><span class="ti-num">'+yard.length+'</span> jefes / asistentes de patio</div>'):'';
+  $('terminfo').innerHTML=
+    '<div class="ti-row"><span class="ti-num">'+disp.length+'</span> despachadores</div>'+
+    yardLine+
+    '<div class="ti-sub">'+MONTHS_ES[state.month-1]+' '+state.year+' · '+mi.D+' días · '+mi.redDays+' días rojos ('+mi.sundays+' dom. + '+feriados+' fer.)</div>'; }
 function shiftSwatch(s){ return '<span class="swatch" style="background:var(--c-'+s+')"></span>'; }
 function renderDemand(){ var t=$('demandTable');
   t.innerHTML='<thead><tr><th>Turno</th><th>Horario</th><th>Mín L-V</th><th>Mín S-D / fest.</th><th>Máx L-V</th><th>Máx S-D / fest.</th><th>Activo</th></tr></thead>';
