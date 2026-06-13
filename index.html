@@ -20,6 +20,7 @@
   --c-B:#8a52c9; --c-Bb:#f0e7fb; --c-Bt:#42206f;
   --c-C:#c98a14; --c-Cb:#fdf0d6; --c-Ct:#6b4a00;
   --c-D:#5a9e2f; --c-Db:#e7f5da; --c-Dt:#2e5a12;
+  --c-yard:#0e7490; --c-yardb:#d7eef3; --c-yardt:#0a4a5c;
   --c-L:#cfd8e0; --c-Lb:#f2f5f8; --c-Lt:#5d6b7a;
   --c-LM:#cf3d3d; --c-LMb:#fbe6e6; --c-LMt:#7a1414;
   --c-VAC:#0d8a9e; --c-VACb:#e0f4f7; --c-VACt:#064450;
@@ -139,6 +140,8 @@ thead .colname{z-index:9}
 .s-N{background:var(--c-Nb);color:var(--c-Nt)} .s-A{background:var(--c-Ab);color:var(--c-At)}
 .s-B{background:var(--c-Bb);color:var(--c-Bt)} .s-L{background:var(--c-Lb);color:var(--c-Lt)}
 .s-C{background:var(--c-Cb);color:var(--c-Ct)} .s-D{background:var(--c-Db);color:var(--c-Dt)}
+.s-yard{background:var(--c-yardb);color:var(--c-yardt)} .s-yard-sw{display:inline-block;width:11px;height:11px;border-radius:3px;background:var(--c-yard)}
+.lg.s-yard b{color:var(--c-yardt)}
 .s-LM{background:var(--c-LMb);color:var(--c-LMt)} .s-VAC{background:var(--c-VACb);color:var(--c-VACt)}
 .cell.editable{cursor:pointer} .cell.editable:hover{outline:2px solid var(--accent);outline-offset:-2px}
 .cellmenu{position:fixed;z-index:200;background:#fff;border:1px solid var(--line);border-radius:9px;box-shadow:0 10px 30px rgba(15,27,41,.28);padding:4px;max-height:300px;overflow:auto}
@@ -149,6 +152,12 @@ thead .colname{z-index:9}
 .segbtn{border:1px solid var(--line);background:#fff;color:var(--muted);border-radius:7px;padding:6px 12px;font-weight:700;font-size:12px;cursor:pointer}
 .segbtn.on{background:var(--accent);color:#fff;border-color:var(--accent)}
 .vbadge{font-size:11px;font-weight:700;vertical-align:middle;background:rgba(255,255,255,.16);color:#fff;border:1px solid rgba(255,255,255,.3);border-radius:20px;padding:2px 9px;margin-left:8px;letter-spacing:.02em}
+.cargo-badge{font-size:10px;font-weight:700;border-radius:10px;padding:1px 7px;margin-left:6px;vertical-align:middle}
+.cargo-badge.jefe{background:var(--c-yard);color:#fff}
+.cargo-badge.asis{background:var(--c-yardb);color:var(--c-yardt);border:1px solid var(--c-yard)}
+.wrow.yardrow{background:linear-gradient(0deg,var(--c-yardb),var(--c-yardb)),#fff;border-left:3px solid var(--c-yard)}
+.section-lbl.yard td{background:var(--c-yard)!important;color:#fff}
+.colname.yard{border-left:3px solid var(--c-yard)}
 .mlbl{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px}
 .xrestr{border:0;background:var(--c-LMb);color:var(--bad);width:22px;height:22px;border-radius:6px;font-weight:700;font-size:14px;line-height:1;cursor:pointer}
 .xrestr:hover{background:#f5b8b8}
@@ -187,7 +196,7 @@ tr.section-lbl td{background:var(--ink2);color:#fff;text-align:left;padding:6px 
 <div class="topbar">
   <div class="brand">
     <div class="glyph">CT</div>
-    <div><h1>Programación mensual de despachadores <span class="vbadge">v2.3</span></h1><div class="sub">ASIGNACIÓN DE TURNOS · JORNADA 42 H</div></div>
+    <div><h1>Programación mensual de despachadores <span class="vbadge">v2.5</span></h1><div class="sub">ASIGNACIÓN DE TURNOS · JORNADA 42 H</div></div>
   </div>
   <div class="spacer"></div>
   <div class="status" id="genStatus"><span class="dot" id="genDot"></span><span id="genLabel">Sin programación generada</span></div>
@@ -225,6 +234,13 @@ tr.section-lbl td{background:var(--ink2);color:#fff;text-align:left;padding:6px 
             <div style="font-size:12px;color:var(--muted)">Días rojos legales = domingos + feriados. Se cargan los feriados oficiales de Chile; puedes ajustarlos.</div>
             <div class="hol-list" id="holList"></div>
             <div class="addhol"><input type="date" id="holInput"><button class="btn sm" id="btnAddHol">Agregar feriado</button></div>
+          </div>
+        </div>
+        <div class="card" id="yardCard">
+          <div class="hd"><span class="eyebrow">Jefes y asistentes de patio</span><h3>Turnos (sin máximos)</h3></div>
+          <div class="bd">
+            <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Dotación requerida por turno para jefes y asistentes de patio. Trabajan de lunes a domingo (días rojos libres + completar en la semana, 2 domingos libres al mes). No tienen máximos.</div>
+            <div style="overflow-x:auto"><table class="demand" id="yardTable"></table></div>
           </div>
         </div>
       </div>
@@ -336,6 +352,7 @@ function getHolidays(year, month){
   var list = HOLIDAYS_BY_YEAR[year] || fallbackHolidays(year);
   return list.filter(function(h){ return parseInt(h[0].slice(5,7),10)===month; });
 }
+var YARD_STAFF=[{"rol": "3808", "rut": "10396144-0", "nombre": "ROBERTO ANTONIO ARAYA ARANCIBIA", "terminal": "LAS PALMAS", "cargo": "JEFE DE PATIO"}, {"rol": "3827", "rut": "14125672-6", "nombre": "RAUL ANIBAL AHUMADA BUSTAMANTE", "terminal": "LOS ESPINOS", "cargo": "JEFE DE PATIO"}, {"rol": "3900", "rut": "8005621-4", "nombre": "LUIS FERMIN FERNANDEZ SOBARZO", "terminal": "LOS PINOS", "cargo": "JEFE DE PATIO"}, {"rol": "4808", "rut": "8896246-K", "nombre": "ARMANDO AGUILERA SILVA", "terminal": "LAS PARRAS", "cargo": "JEFE DE PATIO"}, {"rol": "5370", "rut": "11874286-9", "nombre": "CARLOS ANDRES ORELLANA SILVA", "terminal": "LOS GUINDOS", "cargo": "JEFE DE PATIO"}, {"rol": "6313", "rut": "8114105-3", "nombre": "EDGARDO ENRIQUE GUTIERREZ GATICA", "terminal": "LOS NOGALES", "cargo": "JEFE DE PATIO"}, {"rol": "3412", "rut": "15471376-K", "nombre": "JORGE ANDRES BRAVO ULLOA", "terminal": "LOS ABEDULES", "cargo": "ASISTENTE DE PATIO"}, {"rol": "4218", "rut": "16524502-4", "nombre": "OSCAR RUBEN HIDALGO TORRES", "terminal": "LOS ESPINOS", "cargo": "ASISTENTE DE PATIO"}, {"rol": "4318", "rut": "15428153-3", "nombre": "ENZO GREGORIO MIERZEJEWSKI GONZALEZ", "terminal": "LAS PARRAS", "cargo": "ASISTENTE DE PATIO"}, {"rol": "4741", "rut": "13663154-3", "nombre": "MIGUEL ANGEL MERCADO TUDELA", "terminal": "LOS LINGUES", "cargo": "ASISTENTE DE PATIO"}, {"rol": "5060", "rut": "14134452-8", "nombre": "ARNALDO ANDRES DIAZ SEPULVEDA", "terminal": "LOS ACACIOS", "cargo": "ASISTENTE DE PATIO"}, {"rol": "5065", "rut": "17163981-6", "nombre": "PABLO ALEXIS MARTINEZ TAPIA", "terminal": "LOS LINGUES", "cargo": "ASISTENTE DE PATIO"}, {"rol": "6104", "rut": "6229083-8", "nombre": "MANUEL AMADOR ALVAREZ SAN MARTIN", "terminal": "LAS PARRAS", "cargo": "ASISTENTE DE PATIO"}, {"rol": "6314", "rut": "15707393-1", "nombre": "ALEJANDRO ESTEBAN MORALES RUZ", "terminal": "LAS PALMAS", "cargo": "ASISTENTE DE PATIO"}, {"rol": "6524", "rut": "16937335-3", "nombre": "DIEGO ESTEBAN LOPEZ CATALAN", "terminal": "LOS ROBLES", "cargo": "ASISTENTE DE PATIO"}, {"rol": "80686", "rut": "18851353-0", "nombre": "SAMUEL ALEJANDRO FINSCHI GUAJARDO", "terminal": "LOS NOGALES", "cargo": "ASISTENTE DE PATIO"}];
 
 </script>
 <script>
@@ -352,6 +369,16 @@ var SHIFT_DEFS = {
 };
 var SHIFT_ORDER=['N','M','T','A','C','B','D'];
 var GEO_CODES={N:'276',M:'332',T:'330',A:'331',C:'253',B:'107',D:'405',L:'DL',LM:'LM',VAC:'VA'};
+/* Turnos de jefes y asistentes de patio (sin máximos; código Geo Victoria propio) */
+var YARD_SHIFT_DEFS={
+  J1:{id:'J1',label:'06–13',time:'06:00–13:00',start:6,end:13},
+  J2:{id:'J2',label:'07–14',time:'07:00–14:00',start:7,end:14},
+  J3:{id:'J3',label:'08–15',time:'08:00–15:00',start:8,end:15},
+  J4:{id:'J4',label:'14–21',time:'14:00–21:00',start:14,end:21},
+  J5:{id:'J5',label:'15–22',time:'15:00–22:00',start:15,end:22}
+};
+var YARD_SHIFT_ORDER=['J1','J2','J3','J4','J5'];
+var YARD_GEO_CODES={J1:'243',J2:'72',J3:'332',J4:'107',J5:'332',L:'DL',LM:'LM',VAC:'VA'};
 var TERMINAL_CODES={'LOS ABEDULES':211,'LOS PINOS':238,'LOS NOGALES':241,'LOS ROBLES':212,'LAS ARAUCARIAS':249,'LOS ESPINOS':251,'LOS ACACIOS':262,'LOS LINGUES':263,'LAS PALMAS':243,'LAS PARRAS':267,'LOS GUINDOS':272};
 var STATE_DEFS={L:{label:'Libre',cls:'s-L'},LM:{label:'Licencia médica',cls:'s-LM'},VAC:{label:'Vacaciones',cls:'s-VAC'}};
 var REST_MIN=10, ENGINE_NW=0, ENGINE_EXTRA=[];
@@ -1035,6 +1062,108 @@ function runEngine(cfg){
   var ot=computeOvertime(rows,monthInfo,cfg.activeShifts);
   return {monthInfo:monthInfo,rows:rows,cov:cov,activeShifts:cfg.activeShifts,demand:cfg.demand,terminal:cfg.terminal,year:cfg.year,month:cfg.month,extra:ENGINE_EXTRA.slice(),overtime:ot};
 }
+function buildYardRow(worker,monthInfo,yardSh,offset,redOffset){
+  var days=monthInfo.days, n=days.length, row=new Array(n).fill(null);
+  var r=worker.restriction||{};
+  function inRange(date,rg){ return rg&&rg.from&&rg.to&&date>=rg.from&&date<=rg.to; }
+  var fixed=null; if(r.mode&&r.mode.indexOf('YFIJO_')===0) fixed=r.mode.slice(6);
+  var seq=yardSh.length?yardSh:['J3'];
+  // 1) Asignar turno de trabajo (rotación semanal entre turnos de patio activos) o ausencias
+  for(var d=0;d<n;d++){ var dd=days[d];
+    if(inRange(dd.date,r.vacaciones)){ row[d]='VAC'; continue; }
+    if(inRange(dd.date,r.licencia)){ row[d]='LM'; continue; }
+    if((r.libres||[]).indexOf(dd.date)>=0){ row[d]='L'; continue; }
+    row[d]= fixed?fixed:seq[(dd.week+offset)%seq.length];
+  }
+  return {row:row};
+}
+function distributeYardFree(rows,monthInfo){
+  // Distribuye días libres como los despachadores: 2 domingos libres, días rojos preferidos,
+  // máx 6 días seguidos, completando cuota en la semana. Si hay 2+ personas, evita que libren el mismo día.
+  var days=monthInfo.days, n=days.length, redDays=monthInfo.redDays;
+  var sundays=[]; days.forEach(function(dd,i){ if(dd.isSunday) sundays.push(i); });
+  function isShiftCell(v){ return v&&YARD_SHIFT_DEFS[v]; }
+  function freeAtExcept(i,self){ var c=0; rows.forEach(function(rr){ if(rr===self) return; if(rr.row[i]==='L'||rr.row[i]==='LM'||rr.row[i]==='VAC') c++; }); return c; }
+  function curFree(rr){ var c=0; rr.row.forEach(function(v){ if(v==='L'||v==='LM'||v==='VAC') c++; }); return c; }
+  function sundaysRested(rr){ var c=0; sundays.forEach(function(i){ if(rr.row[i]==='L'||rr.row[i]==='LM'||rr.row[i]==='VAC') c++; }); return c; }
+  function setFree(rr,i){ if(isShiftCell(rr.row[i])) rr.row[i]='L'; }
+  function maxRunIfFree(rr){ var mx=0,c=0; for(var i=0;i<n;i++){ if(isShiftCell(rr.row[i])){c++;if(c>mx)mx=c;}else c=0; } return mx; }
+  var two=rows.length>=2;
+
+  rows.forEach(function(rr,wi){
+    var quota=redDays;
+    // 1) Dos domingos libres, escalonados si hay 2 personas para no coincidir
+    var sOrder=sundays.slice();
+    if(two && wi%2===1){ // impar: tomar domingos en posiciones intercaladas (2º y 4º) en vez de (1º y 3º)
+      sOrder=sundays.filter(function(_,k){return k%2===1;}).concat(sundays.filter(function(_,k){return k%2===0;}));
+    }
+    var got=sundaysRested(rr);
+    for(var k=0;k<sOrder.length && got<2;k++){ var i=sOrder[k]; if(!isShiftCell(rr.row[i])) continue;
+      if(two && freeAtExcept(i,rr)>=1) continue; setFree(rr,i); got++; }
+    for(var k2=0;k2<sOrder.length && sundaysRested(rr)<2;k2++){ var i2=sOrder[k2]; if(isShiftCell(rr.row[i2])){ setFree(rr,i2); } }
+
+    // 2) Resto de libres: recorrer el mes y forzar un libre antes de acumular 6 días seguidos,
+    //    eligiendo el día rojo (sábado/festivo) de la ventana si existe, evitando coincidir.
+    function placeOne(winStart,winEnd){
+      // candidatos en [winStart,winEnd]: preferir sábado, luego festivo, luego cualquier laborable
+      var cands=[];
+      for(var i=winStart;i<=winEnd && i<n;i++){ if(!isShiftCell(rr.row[i])) continue;
+        var dd=days[i]; var pr = dd.dow===6?0 : dd.isHoliday?1 : (dd.dow===1?3:2);
+        cands.push({i:i,pr:pr}); }
+      cands.sort(function(a,b){ return a.pr-b.pr || b.i-a.i; }); // preferir tardío dentro de la ventana
+      // primero sin coincidir
+      for(var c=0;c<cands.length;c++){ if(!two||freeAtExcept(cands[c].i,rr)<1){ setFree(rr,cands[c].i); return true; } }
+      for(var c2=0;c2<cands.length;c2++){ setFree(rr,cands[c2].i); return true; }
+      return false;
+    }
+    // recorre garantizando no más de 6 seguidos
+    var guard=0;
+    while(maxRunIfFree(rr)>6 && guard++<80){
+      // hallar inicio de la primera racha >6 y colocar un libre en sus primeros 6 días
+      var c=0,start=-1;
+      for(var i=0;i<n;i++){ if(isShiftCell(rr.row[i])){ if(c===0)start=i; c++; if(c===7){ break; } } else c=0; }
+      if(start<0) break;
+      if(!placeOne(start,start+5)) break;
+    }
+    // 3) completar cuota restante en días laborables, sin coincidir, sin crear racha >6
+    guard=0;
+    while(curFree(rr)<quota && guard++<80){
+      var best=-1,bestScore=1e9;
+      for(var i=0;i<n;i++){ if(!isShiftCell(rr.row[i])) continue; var dd=days[i];
+        if(two && freeAtExcept(i,rr)>=1) continue;
+        // score: preferir sábados/festivos, luego repartir (evitar lunes pegado a domingo)
+        var sc = dd.dow===6?0 : dd.isHoliday?1 : 5;
+        if(sc<bestScore){ bestScore=sc; best=i; }
+      }
+      if(best<0){ for(var j=0;j<n;j++){ if(isShiftCell(rr.row[j])){ best=j; break; } } }
+      if(best<0) break; setFree(rr,best);
+    }
+  });
+  // Cualquier celda null restante -> turno (rotación por semana)
+  rows.forEach(function(rr){ for(var i=0;i<n;i++){ if(rr.row[i]===null){ rr.row[i]=(rr._seq&&rr._seq.length)?rr._seq[days[i].week%rr._seq.length]:'J3'; } } });
+}
+function runYardEngine(cfg){
+  var monthInfo=cfg.monthInfo, days=monthInfo.days, n=days.length;
+  var yardSh=cfg.activeYardShifts.filter(function(s){ return cfg.demand[s]&&(cfg.demand[s].weekday>0||cfg.demand[s].weekend>0); });
+  if(!yardSh.length) yardSh=cfg.activeYardShifts.slice();
+  var rows=cfg.workers.map(function(w,idx){ var b=buildYardRow(w,monthInfo,yardSh,idx); var rr={worker:w,row:b.row,quota:0,startRun:0,_seq:yardSh.slice()}; return rr; });
+  distributeYardFree(rows,monthInfo);
+  // Cobertura mínima por día (L-D): si un turno activo está bajo el mínimo ese día, intentar cubrir
+  cfg.activeYardShifts.forEach(function(S){
+    days.forEach(function(dd,d){
+      function cnt(s){ var c=0; rows.forEach(function(rr){ if(rr.row[d]===s) c++; }); return c; }
+      var min=cfg.demand[S]?((dd.isWeekend||dd.isHoliday)?cfg.demand[S].weekend:cfg.demand[S].weekday):0;
+      var g=0;
+      while(cnt(S)<min && g++<20){ var moved=false;
+        for(var w=0;w<rows.length&&!moved;w++){ var rr=rows[w]; var v=rr.row[d];
+          if(v===S||v==='L'||v==='LM'||v==='VAC') continue;
+          if(YARD_SHIFT_DEFS[v]&&cnt(v)>((dd.isWeekend||dd.isHoliday)?(cfg.demand[v]?cfg.demand[v].weekend:0):(cfg.demand[v]?cfg.demand[v].weekday:0))){ rr.row[d]=S; moved=true; } }
+        if(!moved) break;
+      }
+    });
+  });
+  return rows;
+}
 /* Horas extras: horas del día sin cobertura (24/7), atribuidas a un turno adyacente que se extiende */
 function computeOvertime(rows,monthInfo,activeSh){
   var days=monthInfo.days, n=days.length;
@@ -1071,12 +1200,26 @@ var state={
            N:{active:true,weekday:2,weekend:1,maxWeekday:2,maxWeekend:1}, A:{active:false,weekday:1,weekend:0,maxWeekday:null,maxWeekend:null},
            B:{active:false,weekday:1,weekend:0,maxWeekday:null,maxWeekend:null}, C:{active:true,weekday:0,weekend:0,maxWeekday:null,maxWeekend:null},
            D:{active:false,weekday:1,weekend:0,maxWeekday:null,maxWeekend:null} },
-  restrictions:{}, overrides:{}, memory:{}, result:null
+  restrictions:{}, overrides:{}, memory:{}, result:null,
+  yardShifts:{ J1:{active:true,weekday:1,weekend:0}, J2:{active:false,weekday:0,weekend:0}, J3:{active:true,weekday:1,weekend:0}, J4:{active:false,weekday:0,weekend:0}, J5:{active:false,weekday:0,weekend:0} }
 };
-function effTerminal(rol){ return state.overrides[rol] || (DISPATCHERS.filter(function(d){return d.rol===rol;})[0]||{}).terminal; }
+function isJefe(cargo){ return /JEFE/i.test(cargo||''); }
+function isAsistente(cargo){ return /ASISTENTE/i.test(cargo||''); }
+function isYard(cargo){ return isJefe(cargo)||isAsistente(cargo); }
+function allPeople(){ return DISPATCHERS.concat(YARD_STAFF); }
+function personByRol(rol){ return allPeople().filter(function(d){return d.rol===rol;})[0]; }
+function cargoRank(cargo){ if(isJefe(cargo))return 0; if(isAsistente(cargo))return 1; return 2; }
+function effTerminalP(rol){ return state.overrides[rol] || (personByRol(rol)||{}).terminal; }
+function effTerminal(rol){ return state.overrides[rol] || (allPeople().filter(function(d){return d.rol===rol;})[0]||{}).terminal; }
 function allTerminals(){ var s={}; DISPATCHERS.forEach(function(d){ s[effTerminal(d.rol)]=1; }); return Object.keys(s).sort(); }
-function workersOfTerminal(){ return DISPATCHERS.filter(function(d){return effTerminal(d.rol)===state.terminal;}); }
+function dispatchersOfTerminal(){ return DISPATCHERS.filter(function(d){return effTerminal(d.rol)===state.terminal;}); }
+function yardOfTerminal(){ return YARD_STAFF.filter(function(d){return effTerminal(d.rol)===state.terminal;}); }
+function workersOfTerminal(){ // jefes, luego asistentes, luego despachadores
+  var all=dispatchersOfTerminal().concat(yardOfTerminal());
+  return all.sort(function(a,b){ return cargoRank(a.cargo)-cargoRank(b.cargo); });
+}
 function activeShifts(){ return SHIFT_ORDER.filter(function(s){return state.shifts[s].active;}); }
+function activeYardShifts(){ return YARD_SHIFT_ORDER.filter(function(s){return state.yardShifts[s].active;}); }
 
 /* ===================== INIT ===================== */
 var $=function(id){return document.getElementById(id);};
@@ -1092,7 +1235,7 @@ function init(){
   selT.onchange=function(){state.terminal=this.value;renderTerminfo();renderWorkers();};
   selM.onchange=function(){state.month=+this.value;loadHolidays();renderTerminfo();renderWorkers();};
   selY.onchange=function(){state.year=+this.value;populateMonths(state.year);loadHolidays();renderTerminfo();renderWorkers();};
-  loadHolidays(); renderTerminfo(); renderDemand(); renderWorkers();
+  loadHolidays(); renderTerminfo(); renderDemand(); renderYardDemand(); renderWorkers();
   $('wSearch').oninput=renderWorkers;
   $('btnAddHol').onclick=function(){ var v=$('holInput').value; if(v){ if(!state.holidays.some(function(h){return h[0]===v;})){ state.holidays.push([v,'Feriado agregado']); state.holidays.sort(function(a,b){return a[0]<b[0]?-1:1;}); } renderHolidays(); $('holInput').value=''; renderTerminfo(); } };
   $('btnGen').onclick=generate; $('btnXlsx').onclick=exportExcel; $('btnGeo').onclick=exportGeo;
@@ -1107,8 +1250,9 @@ function renderHolidays(){ var el=$('holList'); el.innerHTML=''; if(!state.holid
     var chip=document.createElement('span'); chip.className='hol'; chip.innerHTML='<span>'+wd+' '+d+' · '+h[1]+'</span><span class="x">×</span>';
     chip.querySelector('.x').onclick=function(){state.holidays.splice(idx,1);renderHolidays();renderTerminfo();}; el.appendChild(chip); });
   $('holCount').textContent=state.holidays.length+' feriados'; }
-function renderTerminfo(){ var ws=workersOfTerminal(); var mi=buildMonth(state.year,state.month,state.holidays.map(function(h){return h[0];}));
-  $('terminfo').innerHTML='<b>'+ws.length+'</b> despachadores en '+state.terminal+
+function renderTerminfo(){ var disp=dispatchersOfTerminal(), yard=yardOfTerminal(); var mi=buildMonth(state.year,state.month,state.holidays.map(function(h){return h[0];}));
+  var yardTxt=yard.length?(' · <b>'+yard.length+'</b> jefes/asistentes de patio'):'';
+  $('terminfo').innerHTML='<b>'+disp.length+'</b> despachadores en '+state.terminal+yardTxt+
     '<div style="margin-top:6px;font-size:12px">'+MONTHS_ES[state.month-1]+' '+state.year+' · <b>'+mi.D+'</b> días · <b>'+mi.redDays+'</b> días rojos ('+mi.sundays+' domingos + '+state.holidays.length+' feriados)</div>'+
     '<div style="margin-top:3px;font-size:12px">Días libres por persona: <b>'+mi.redDays+'</b> · exactamente <b>2 domingos</b> libres al mes</div>'; }
 function shiftSwatch(s){ return '<span class="swatch" style="background:var(--c-'+s+')"></span>'; }
@@ -1131,7 +1275,29 @@ function renderDemand(){ var t=$('demandTable');
     if(k==='active'){ state.shifts[s].active=this.checked; renderDemand(); }
     else if(k==='maxWeekday'||k==='maxWeekend'){ state.shifts[s][k]=(this.value===''?null:Math.max(0,parseInt(this.value,10))); }
     else state.shifts[s][k]=Math.max(0,parseInt(this.value||'0',10)); }; }); }
-function restrLabel(r){ if(!r||!r.mode||r.mode==='ROTATIVO'){ var ex=[]; if(r){ if(r.lunSab)ex.push('L–S'); if(r.reemplazoNocturno)ex.push('reemp.noche'); if(r.vacaciones&&r.vacaciones.from)ex.push('Vacaciones'); if(r.licencia&&r.licencia.from)ex.push('Licencia'); if(r.fdsLibre)ex.push('FDS libre'); if(r.libres&&r.libres.length)ex.push(r.libres.length+' libre(s)'); }
+function renderYardDemand(){ var t=$('yardTable'); if(!t) return;
+  t.innerHTML='<thead><tr><th>Turno</th><th>Horario</th><th>Mín L-V</th><th>Activo</th></tr></thead>';
+  var tb=document.createElement('tbody');
+  YARD_SHIFT_ORDER.forEach(function(s){ var def=YARD_SHIFT_DEFS[s], cfg=state.yardShifts[s];
+    var tr=document.createElement('tr'); tr.className=cfg.active?'':'optrow';
+    tr.innerHTML='<td><span class="chip-shift"><span class="swatch s-yard-sw"></span>'+def.label+'</span></td>'+
+      '<td class="mono" style="font-size:12px;color:var(--muted)">'+def.time+'</td>'+
+      '<td><input type="number" min="0" max="20" value="'+cfg.weekday+'" data-s="'+s+'" data-k="weekday"></td>'+
+      '<td><label class="toggle"><input type="checkbox" data-s="'+s+'" data-k="active" '+(cfg.active?'checked':'')+'><span class="tk"></span></label></td>';
+    tb.appendChild(tr); });
+  t.appendChild(tb);
+  t.querySelectorAll('input').forEach(function(inp){ inp.onchange=function(){ var s=this.dataset.s,k=this.dataset.k;
+    if(k==='active'){ state.yardShifts[s].active=this.checked; renderYardDemand(); }
+    else state.yardShifts[s][k]=Math.max(0,parseInt(this.value||'0',10)); }; }); }
+function restrLabel(r,cargo){
+  if(isYard(cargo)){
+    if(!r||!r.mode||r.mode==='YROT'){ var exY=[]; if(r){ if(r.vacaciones&&r.vacaciones.from)exY.push('Vacaciones'); if(r.licencia&&r.licencia.from)exY.push('Licencia'); if(r.libres&&r.libres.length)exY.push(r.libres.length+' libre(s)'); }
+      return exY.length?{txt:'Rotativo patio · '+exY.join(', '),cls:'aus'}:{txt:'Rotativo patio',cls:'rot'}; }
+    var yl=(YARD_SHIFT_DEFS[r.mode.slice(6)]||{}).label||''; var exY2=[];
+    if(r.vacaciones&&r.vacaciones.from)exY2.push('Vac'); if(r.licencia&&r.licencia.from)exY2.push('Lic'); if(r.libres&&r.libres.length)exY2.push(r.libres.length+'L');
+    return {txt:'Fijo '+yl+(exY2.length?' · '+exY2.join(','):''),cls:'fij'};
+  }
+  if(!r||!r.mode||r.mode==='ROTATIVO'){ var ex=[]; if(r){ if(r.lunSab)ex.push('L–S'); if(r.reemplazoNocturno)ex.push('reemp.noche'); if(r.vacaciones&&r.vacaciones.from)ex.push('Vacaciones'); if(r.licencia&&r.licencia.from)ex.push('Licencia'); if(r.fdsLibre)ex.push('FDS libre'); if(r.libres&&r.libres.length)ex.push(r.libres.length+' libre(s)'); }
     return ex.length?{txt:'Rotativo · '+ex.join(', '),cls:'aus'}:{txt:'Rotativo normal',cls:'rot'}; }
   var map={FIJO_M:'Fijo mañana',FIJO_T:'Fijo tarde',FIJO_N:'Fijo noche',FIJO_A:'Fijo 05–12',FIJO_B:'Fijo 14–21',FIJO_C:'Fijo 10–17',FIJO_D:'Fijo 12–19'};
   var base=map[r.mode]||'Rotativo', ex=[]; if(r.mode&&r.mode.indexOf('FIJO')===0){ base+=(r.fixedDays==='LV'?' (L–V)':' (L–D)'); if(r.fixedDays==='LV'&&r.weekendShift==='ROT') base+=' + FDS rotativo'; else if(r.fixedDays==='LV'&&r.weekendShift&&r.weekendShift!=='L'&&SHIFT_DEFS[r.weekendShift]) base+=' + FDS '+SHIFT_DEFS[r.weekendShift].label.toLowerCase(); if(r.altShifts&&r.altShifts.length) base+=' +'+r.altShifts.length+' turnos'; }
@@ -1140,10 +1306,11 @@ function restrLabel(r){ if(!r||!r.mode||r.mode==='ROTATIVO'){ var ex=[]; if(r){ 
 function renderWorkers(){ var q=($('wSearch').value||'').toLowerCase();
   var ws=workersOfTerminal().filter(function(w){ return !q||w.nombre.toLowerCase().indexOf(q)>=0||w.rol.indexOf(q)>=0; });
   $('wCount').textContent=workersOfTerminal().length+' personas'; var el=$('wlist'); el.innerHTML='';
-  ws.forEach(function(w){ var r=state.restrictions[w.rol]; var lab=restrLabel(r);
-    var row=document.createElement('div'); row.className='wrow';
-    var mem = state.memory[w.rol]?(' · últ. libre '+state.memory[w.rol].slice(5)):'';
-    row.innerHTML='<div><div class="nm">'+w.nombre+'</div><div class="rol">Rol '+w.rol+' · '+w.cargo+mem+'</div></div>'+
+  ws.forEach(function(w){ var r=state.restrictions[w.rol]; var lab=restrLabel(r,w.cargo);
+    var row=document.createElement('div'); row.className='wrow'+(isYard(w.cargo)?' yardrow':'');
+    var mem = (!isYard(w.cargo)&&state.memory[w.rol])?(' · últ. libre '+state.memory[w.rol].slice(5)):'';
+    var badge=isJefe(w.cargo)?'<span class="cargo-badge jefe">Jefe de patio</span>':isAsistente(w.cargo)?'<span class="cargo-badge asis">Asistente</span>':'';
+    row.innerHTML='<div><div class="nm">'+w.nombre+' '+badge+'</div><div class="rol">Rol '+w.rol+' · '+w.cargo+mem+'</div></div>'+
       '<div style="display:flex;gap:6px;align-items:center"><div class="tag '+lab.cls+'">'+lab.txt+'</div>'+
       (r?'<button class="xrestr" title="Quitar todas las restricciones">×</button>':'')+'</div>';
     row.querySelector('.tag').onclick=function(){ openModal(w.rol); };
@@ -1152,7 +1319,8 @@ function renderWorkers(){ var q=($('wSearch').value||'').toLowerCase();
 
 /* ===================== MODAL ===================== */
 var modalRol=null;
-function openModal(rol){ modalRol=rol; var w=DISPATCHERS.filter(function(d){return d.rol===rol;})[0];
+function openModal(rol){ modalRol=rol; var w=personByRol(rol);
+  if(isYard(w.cargo)){ openYardModal(w); return; }
   var r=state.restrictions[rol]||{mode:'ROTATIVO',libres:[],licencia:{from:'',to:''},vacaciones:{from:'',to:''},fdsLibre:false,lastFree:''};
   r.libres=r.libres||[]; r.licencia=r.licencia||{from:'',to:''}; r.vacaciones=r.vacaciones||{from:'',to:''};
   var memLast=state.memory[rol]||'';
@@ -1200,6 +1368,31 @@ function openModal(rol){ modalRol=rol; var w=DISPATCHERS.filter(function(d){retu
   $('modalClear').onclick=function(){ delete state.restrictions[modalRol]; closeModal(); renderWorkers(); };
   $('modalBg').classList.add('open'); }
 function closeModal(){ $('modalBg').classList.remove('open'); modalRol=null; }
+function openYardModal(w){ var rol=w.rol;
+  var r=state.restrictions[rol]||{mode:'YROT',libres:[],licencia:{from:'',to:''},vacaciones:{from:'',to:''},fdsLibre:false};
+  r.libres=r.libres||[]; r.licencia=r.licencia||{from:'',to:''}; r.vacaciones=r.vacaciones||{from:'',to:''};
+  $('modalWho').textContent=w.nombre+' · Rol '+w.rol+' · '+w.cargo;
+  var opts=[['YROT','Rotativo (turnos de patio)','Rota entre los turnos de patio activos']];
+  YARD_SHIFT_ORDER.forEach(function(s){ if(state.yardShifts[s].active) opts.push(['YFIJO_'+s,'Turno fijo '+YARD_SHIFT_DEFS[s].label,'Siempre '+YARD_SHIFT_DEFS[s].time]); });
+  var html='<div class="mlbl">Modalidad de turno</div><div class="radio-grid" id="mradio">';
+  opts.forEach(function(o){ html+='<label class="ropt'+(r.mode===o[0]?' sel':'')+'"><input type="radio" name="mode" value="'+o[0]+'" '+(r.mode===o[0]?'checked':'')+'><div><div class="rl">'+o[1]+'</div><div class="rd">'+o[2]+'</div></div></label>'; });
+  html+='</div>';
+  html+='<div class="rd" style="margin:8px 2px 0;color:var(--muted)">Los jefes y asistentes trabajan de lunes a domingo, con 2 domingos libres al mes y máximo 6 días seguidos. Cuando hay dos en el terminal, no libran el mismo día.</div>';
+  html+='<div class="mlbl" style="margin-top:16px">Ausencias y descansos (se combinan)</div>';
+  html+='<div class="ropt" style="cursor:default;flex-direction:column;align-items:stretch;margin-top:8px"><div class="rl" style="margin-bottom:6px">Vacaciones (rango)</div><div class="row2"><input type="date" id="vacFrom" value="'+(r.vacaciones.from||'')+'"><input type="date" id="vacTo" value="'+(r.vacaciones.to||'')+'"></div></div>';
+  html+='<div class="ropt" style="cursor:default;flex-direction:column;align-items:stretch;margin-top:8px"><div class="rl" style="margin-bottom:6px">Licencia médica (rango)</div><div class="row2"><input type="date" id="licFrom" value="'+(r.licencia.from||'')+'"><input type="date" id="licTo" value="'+(r.licencia.to||'')+'"></div></div>';
+  html+='<div class="ropt" style="cursor:default;flex-direction:column;align-items:stretch;margin-top:8px"><div class="rl" style="margin-bottom:6px">Días libres en fecha específica</div><div class="addhol"><input type="date" id="libInput"><button class="btn sm" id="libAdd">Agregar</button></div><div class="hol-list" id="libList"></div></div>';
+  $('modalBody').innerHTML=html;
+  $('mradio').querySelectorAll('.ropt').forEach(function(lo){ lo.onclick=function(){ $('mradio').querySelectorAll('.ropt').forEach(function(x){x.classList.remove('sel');}); lo.classList.add('sel'); lo.querySelector('input').checked=true; }; });
+  var tmp=r.libres.slice();
+  function rl(){ var le=$('libList'); le.innerHTML=''; tmp.forEach(function(dt,i){ var c=document.createElement('span'); c.className='hol'; c.style.background='var(--c-Lb)'; c.style.color='var(--c-Lt)'; c.style.borderColor='var(--line)'; c.innerHTML='<span>'+dt+'</span><span class="x" style="color:var(--muted)">×</span>'; c.querySelector('.x').onclick=function(){tmp.splice(i,1);rl();}; le.appendChild(c); }); }
+  rl(); $('libAdd').onclick=function(){ var v=$('libInput').value; if(v&&tmp.indexOf(v)<0){tmp.push(v);tmp.sort();rl();$('libInput').value='';} };
+  $('modalSave').onclick=function(){ var mode=$('mradio').querySelector('input:checked').value;
+    var nr={mode:mode,libres:tmp.slice(),vacaciones:{from:$('vacFrom').value,to:$('vacTo').value},licencia:{from:$('licFrom').value,to:$('licTo').value}};
+    var isDef=mode==='YROT'&&!nr.libres.length&&!nr.vacaciones.from&&!nr.licencia.from;
+    if(isDef) delete state.restrictions[modalRol]; else state.restrictions[modalRol]=nr; closeModal(); renderWorkers(); };
+  $('modalClear').onclick=function(){ delete state.restrictions[modalRol]; closeModal(); renderWorkers(); };
+  $('modalBg').classList.add('open'); }
 
 /* ===================== TERMINALES (traslados) ===================== */
 function renderTerminales(){ var cont=$('terminalesBody'); var TS=allTerminals();
@@ -1218,13 +1411,21 @@ function refreshTerminalSelect(){ var TS=allTerminals(); var selT=$('selTerminal
   if(TS.indexOf(cur)<0) state.terminal=TS[0]; selT.value=state.terminal; }
 
 /* ===================== GENERAR ===================== */
-function generate(){ var ws=workersOfTerminal().map(function(w){ var r=state.restrictions[w.rol]?Object.assign({},state.restrictions[w.rol]):{mode:'ROTATIVO'};
+function generate(){
+  var disp=dispatchersOfTerminal().map(function(w){ var r=state.restrictions[w.rol]?Object.assign({},state.restrictions[w.rol]):{mode:'ROTATIVO'};
     if(!r.lastFree && state.memory[w.rol]) r.lastFree=state.memory[w.rol];
     return {id:w.rol,rol:w.rol,nombre:w.nombre,cargo:w.cargo,restriction:r}; });
-  if(!ws.length){ alert('El terminal seleccionado no tiene despachadores.'); return; }
+  if(!disp.length){ alert('El terminal seleccionado no tiene despachadores.'); return; }
   var as=activeShifts(); if(!as.length){ alert('Activa al menos un turno.'); return; }
   var demandSnap=JSON.parse(JSON.stringify(state.shifts));
-  state.result=runEngine({year:state.year,month:state.month,holidays:state.holidays.map(function(h){return h[0];}),workers:ws,activeShifts:as,demand:demandSnap,terminal:state.terminal});
+  state.result=runEngine({year:state.year,month:state.month,holidays:state.holidays.map(function(h){return h[0];}),workers:disp,activeShifts:as,demand:demandSnap,terminal:state.terminal});
+  // Personal de patio: jefes y asistentes, motor simple L-V
+  var yardWs=yardOfTerminal().map(function(w){ var r=state.restrictions[w.rol]?Object.assign({},state.restrictions[w.rol]):{mode:'YROT'};
+    return {id:w.rol,rol:w.rol,nombre:w.nombre,cargo:w.cargo,restriction:r}; })
+    .sort(function(a,b){ return cargoRank(a.cargo)-cargoRank(b.cargo); });
+  var yardSnap=JSON.parse(JSON.stringify(state.yardShifts));
+  state.result.yardRows=runYardEngine({monthInfo:state.result.monthInfo,workers:yardWs,activeYardShifts:activeYardShifts(),demand:yardSnap});
+  state.result.yardDemand=yardSnap; state.result.activeYardShifts=activeYardShifts();
   // memorizar último día libre de cada trabajador
   var mem=state.memory; var days=state.result.monthInfo.days;
   state.result.rows.forEach(function(rr){ var last=null; rr.row.forEach(function(c,i){ if(c==='L') last=days[i].date; }); if(last) mem[rr.worker.rol]=last; });
@@ -1248,14 +1449,27 @@ function renderSchedule(){ var R=state.result; $('schedEmpty').style.display='no
   var leg=$('legend'); leg.innerHTML='';
   var usedC=R.rows.some(function(rr){return rr.row.indexOf('C')>=0;});
   var legendShifts=R.activeShifts.slice(); if(usedC&&legendShifts.indexOf('C')<0) legendShifts.push('C');
-  legendShifts.concat(['L','LM','VAC']).forEach(function(c){ var def=SHIFT_DEFS[c]||STATE_DEFS[c]; var sp=document.createElement('span'); sp.className='lg s-'+c; sp.innerHTML='<b class="mono">'+c+'</b> '+def.label; leg.appendChild(sp); });
+  legendShifts.forEach(function(c){ var def=SHIFT_DEFS[c]||STATE_DEFS[c]; var sp=document.createElement('span'); sp.className='lg s-'+c; sp.innerHTML='<b class="mono">'+c+'</b> '+def.label; leg.appendChild(sp); });
+  (R.activeYardShifts||[]).forEach(function(c){ var def=YARD_SHIFT_DEFS[c]; var sp=document.createElement('span'); sp.className='lg s-yard'; sp.innerHTML='<b class="mono">'+c+'</b> '+def.label; leg.appendChild(sp); });
+  ['L','LM','VAC'].forEach(function(c){ var def=STATE_DEFS[c]; var sp=document.createElement('span'); sp.className='lg s-'+c; sp.innerHTML='<b class="mono">'+c+'</b> '+def.label; leg.appendChild(sp); });
   var t=$('schedTable'); t.innerHTML='';
-  var thead=document.createElement('thead'), hr=document.createElement('tr'); hr.innerHTML='<th class="colname head">Despachador</th>';
+  var thead=document.createElement('thead'), hr=document.createElement('tr'); hr.innerHTML='<th class="colname head">Trabajador</th>';
   days.forEach(function(dd){ var cls='daycell'+(dd.isRed?' red':'')+(dd.isSunday?' sun':''); hr.innerHTML+='<th class="'+(dd.isRed?'red':'')+'"><div class="'+cls+'"><div class="dn">'+dd.d+'</div><div class="dw">'+DOW_ES[dd.dow]+'</div></div></th>'; });
   thead.appendChild(hr); t.appendChild(thead);
   var tb=document.createElement('tbody');
+  // --- Jefes y asistentes de patio (arriba) ---
+  var yrows=R.yardRows||[];
+  if(yrows.length){
+    var yl=document.createElement('tr'); yl.className='section-lbl yard'; yl.innerHTML='<td colspan="'+(days.length+1)+'">Jefes y asistentes de patio</td>'; tb.appendChild(yl);
+    yrows.forEach(function(rr,yi){ var tr=document.createElement('tr');
+      var cargoTag=isJefe(rr.worker.cargo)?'Jefe de patio':'Asistente de patio';
+      var cell='<td class="colname yard"><div class="nm">'+rr.worker.nombre+'</div><div class="meta2">'+cargoTag+'</div></td>';
+      rr.row.forEach(function(c,i){ var cls=YARD_SHIFT_DEFS[c]?'s-yard':(STATE_DEFS[c]?STATE_DEFS[c].cls:''); cell+='<td class="cell editable '+cls+'" data-y="'+yi+'" data-d="'+i+'">'+c+'</td>'; });
+      tr.innerHTML=cell; tb.appendChild(tr); });
+    var ysp=document.createElement('tr'); ysp.className='spacer'; ysp.innerHTML='<td colspan="'+(days.length+1)+'"></td>'; tb.appendChild(ysp);
+    var dl=document.createElement('tr'); dl.className='section-lbl'; dl.innerHTML='<td colspan="'+(days.length+1)+'">Despachadores</td>'; tb.appendChild(dl);
+  }
   R.rows.forEach(function(rr,wi){ var v=validateRow(rr.row,days,rr.startRun); var tr=document.createElement('tr');
-    var ok=v.issues.length===0&&(v.libres>=mi.redDays||(v.lm+v.vac)>0)&&(v.domLibres===2||v.domLibres>=Math.min(2,2)||(v.lm+v.vac)>0);
     var meta='L:'+v.libres+'/'+mi.redDays+' · Dom:'+v.domLibres+' · máx '+v.maxRun+'d';
     var cell='<td class="colname"><div class="nm">'+rr.worker.nombre+'</div><div class="meta2">'+(v.issues.length?'⚠ ':'✓ ')+meta+'</div></td>';
     rr.row.forEach(function(c,i){ var cls=(SHIFT_DEFS[c]?'s-'+c:STATE_DEFS[c]?STATE_DEFS[c].cls:''); cell+='<td class="cell editable '+cls+'" data-w="'+wi+'" data-d="'+i+'">'+c+'</td>'; });
@@ -1268,7 +1482,21 @@ function renderSchedule(){ var R=state.result; $('schedEmpty').style.display='no
     days.forEach(function(dd,i){ var req=(dd.isWeekend||dd.isHoliday)?R.demand[s].weekend:R.demand[s].weekday; var got=R.cov.counter[s][i]; cell+='<td class="cell '+(got<req?'cnt-bad':'cnt-ok')+'" title="req '+req+'">'+got+'</td>'; });
     tr.innerHTML=cell; tb.appendChild(tr); });
   t.appendChild(tb);
-  t.querySelectorAll('td.editable').forEach(function(td){ td.onclick=function(){ openCellEditor(td); }; }); }
+  t.querySelectorAll('td.editable').forEach(function(td){ td.onclick=function(){ if(td.dataset.y!==undefined) openYardEditor(td); else openCellEditor(td); }; }); }
+function openYardEditor(td){ closeCellMenu(); var y=+td.dataset.y, d=+td.dataset.d, R=state.result, cur=R.yardRows[y].row[d];
+  var opts=(R.activeYardShifts||YARD_SHIFT_ORDER).slice().concat(['L','LM','VAC']);
+  var menu=document.createElement('div'); menu.className='cellmenu';
+  opts.forEach(function(o){ var b=document.createElement('button'); b.type='button'; b.className='cellopt '+(YARD_SHIFT_DEFS[o]?'s-yard':'s-'+o)+(o===cur?' cur':'');
+    b.innerHTML='<b class="mono">'+o+'</b> '+((YARD_SHIFT_DEFS[o]||STATE_DEFS[o]).label);
+    b.onclick=function(ev){ ev.stopPropagation(); R.yardRows[y].row[d]=o; td.className='cell editable '+(YARD_SHIFT_DEFS[o]?'s-yard':STATE_DEFS[o].cls); td.textContent=o; closeCellMenu(); };
+    menu.appendChild(b); });
+  document.body.appendChild(menu);
+  var rect=td.getBoundingClientRect(); var mw=Math.min(170,window.innerWidth-12); menu.style.minWidth=mw+'px';
+  menu.style.left=Math.max(6,Math.min(rect.left,window.innerWidth-mw-6))+'px';
+  var top=rect.bottom+2; if(top>window.innerHeight-160) top=Math.max(6,rect.top-160); menu.style.top=top+'px';
+  function outside(e){ if(!menu.contains(e.target)){ closeCellMenu(); } }
+  window._cellMenu={el:menu,outside:outside};
+  setTimeout(function(){ document.addEventListener('mousedown',outside,true); },0); }
 
 function renderCounters(){ var R=state.result, days=R.monthInfo.days, t=$('schedTable');
   t.querySelectorAll('tr.counter').forEach(function(tr){ var s=tr.dataset.shift; var tds=tr.querySelectorAll('td.cell');
@@ -1356,8 +1584,8 @@ function gapsToRanges(gaps){ if(!gaps.length) return '—'; var out=[], s=gaps[0
 
 /* ===================== EXCEL ===================== */
 function xlFill(hex){ return {patternType:'solid',fgColor:{rgb:hex}}; }
-var XL_COLORS={M:'FFE7C2',T:'F8D2C4',N:'D5DAF2',A:'C8EDE6',B:'E2D2F4',C:'FCE2B8',D:'D7EFC8',L:'E6ECF1',LM:'F6CFCF',VAC:'CFEAEF'};
-var XL_TXT={M:'7A4D00',T:'7A2D12',N:'1C245E',A:'06463D',B:'42206F',C:'6B4A00',D:'2E5A12',L:'5D6B7A',LM:'7A1414',VAC:'064450'};
+var XL_COLORS={M:'FFE7C2',T:'F8D2C4',N:'D5DAF2',A:'C8EDE6',B:'E2D2F4',C:'FCE2B8',D:'D7EFC8',J1:'D7EEF3',J2:'D7EEF3',J3:'D7EEF3',J4:'D7EEF3',J5:'D7EEF3',L:'E6ECF1',LM:'F6CFCF',VAC:'CFEAEF'};
+var XL_TXT={M:'7A4D00',T:'7A2D12',N:'1C245E',A:'06463D',B:'42206F',C:'6B4A00',D:'2E5A12',J1:'0A4A5C',J2:'0A4A5C',J3:'0A4A5C',J4:'0A4A5C',J5:'0A4A5C',L:'5D6B7A',LM:'7A1414',VAC:'064450'};
 function styleCell(ws,r,c,style){ var ref=XLSX.utils.encode_cell({r:r,c:c}); if(!ws[ref]) ws[ref]={t:'s',v:''}; ws[ref].s=style; }
 var XLSX_CDNS=['https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js','https://unpkg.com/xlsx-js-style@1.2.0/dist/xlsx.bundle.js','https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'];
 function loadScript(url){ return new Promise(function(res,rej){ var s=document.createElement('script'); s.src=url; s.onload=function(){res();}; s.onerror=function(){rej(url);}; document.head.appendChild(s); }); }
@@ -1371,10 +1599,18 @@ function doExportGeo(){ var R=state.result, days=R.monthInfo.days; var wb=XLSX.u
   if(cc===undefined){ alert('El terminal "'+R.terminal+'" no tiene código Geo Victoria registrado. Se exportará con la columna CC vacía.'); cc=''; }
   var head=['CC','ROL']; days.forEach(function(dd){ head.push(dd.d); });
   var aoa=[head];
+  // Despachadores
   R.rows.forEach(function(rr){
     var rol=rr.worker.rol, rolV=(rol!==''&&!isNaN(+rol))?+rol:rol;
     var line=[cc,rolV];
     rr.row.forEach(function(c){ var code=GEO_CODES[c]!==undefined?GEO_CODES[c]:c; line.push((code!==''&&!isNaN(+code))?+code:code); });
+    aoa.push(line);
+  });
+  // Asistentes de patio (los JEFES se excluyen del export Geo Victoria)
+  (R.yardRows||[]).forEach(function(rr){ if(!isAsistente(rr.worker.cargo)) return;
+    var rol=rr.worker.rol, rolV=(rol!==''&&!isNaN(+rol))?+rol:rol;
+    var line=[cc,rolV];
+    rr.row.forEach(function(c){ var code=YARD_GEO_CODES[c]!==undefined?YARD_GEO_CODES[c]:c; line.push((code!==''&&!isNaN(+code))?+code:code); });
     aoa.push(line);
   });
   var ws=XLSX.utils.aoa_to_sheet(aoa);
@@ -1394,6 +1630,8 @@ function doExportExcel(){ var R=state.result, mi=R.monthInfo, days=mi.days; var 
   var border={style:'thin',color:{rgb:'D8DEE6'}}, allB={top:border,bottom:border,left:border,right:border};
   var aoa=[['Programación de turnos — '+R.terminal+' — '+MONTHS_ES[R.month-1]+' '+R.year]];
   var head=['DESPACHADOR','ROL']; days.forEach(function(dd){head.push(dd.d+' '+DOW_ES[dd.dow]);}); head.push('Libres','Dom.lib','MáxSeg'); aoa.push(head);
+  var yrows=R.yardRows||[];
+  yrows.forEach(function(rr){ var line=[rr.worker.nombre+'  ('+(isJefe(rr.worker.cargo)?'Jefe patio':'Asist. patio')+')',rr.worker.rol]; rr.row.forEach(function(c){line.push(c);}); line.push('','',''); aoa.push(line); });
   R.rows.forEach(function(rr){ var v=validateRow(rr.row,days,rr.startRun); var line=[rr.worker.nombre,rr.worker.rol]; rr.row.forEach(function(c){line.push(c);}); line.push(v.libres,v.domLibres,v.maxRun); aoa.push(line); });
   aoa.push([]); aoa.push(['COBERTURA POR TURNO (asignados por día)']);
   var chead=['Turno','Req L-V / S-D']; days.forEach(function(dd){chead.push(dd.d+' '+DOW_ES[dd.dow]);}); aoa.push(chead);
@@ -1403,10 +1641,11 @@ function doExportExcel(){ var R=state.result, mi=R.monthInfo, days=mi.days; var 
   styleCell(ws,0,0,{font:{bold:true,sz:13,name:'Arial'}});
   for(var c=0;c<head.length;c++){ var dd=days[c-2]; var fill=(dd&&dd.isRed)?'F6CFCF':'1C2C3D'; var col=(dd&&dd.isRed)?'7A1414':'FFFFFF'; if(c<2||c>=days.length+2){fill='1C2C3D';col='FFFFFF';}
     styleCell(ws,1,c,{font:{bold:true,sz:9,name:'Arial',color:{rgb:col}},fill:xlFill(fill),alignment:{horizontal:'center',vertical:'center'},border:allB}); }
-  R.rows.forEach(function(rr,ri){ styleCell(ws,2+ri,0,{font:{name:'Arial',sz:10,bold:true},border:allB}); styleCell(ws,2+ri,1,{font:{name:'Arial',sz:9,color:{rgb:'8794A3'}},alignment:{horizontal:'center'},border:allB});
+  var allBody=yrows.concat(R.rows);
+  allBody.forEach(function(rr,ri){ var isY=ri<yrows.length; styleCell(ws,2+ri,0,{font:{name:'Arial',sz:10,bold:true,color:{rgb:isY?'0A4A5C':'1C2C3D'}},fill:isY?xlFill('EAF6F9'):undefined,border:allB}); styleCell(ws,2+ri,1,{font:{name:'Arial',sz:9,color:{rgb:'8794A3'}},alignment:{horizontal:'center'},border:allB});
     rr.row.forEach(function(code,ci){ styleCell(ws,2+ri,2+ci,{font:{name:'Arial',sz:9,bold:true,color:{rgb:XL_TXT[code]||'000000'}},fill:xlFill(XL_COLORS[code]||'FFFFFF'),alignment:{horizontal:'center'},border:allB}); });
     for(var k=0;k<3;k++) styleCell(ws,2+ri,2+days.length+k,{font:{name:'Arial',sz:9},alignment:{horizontal:'center'},border:allB}); });
-  var covLbl=2+R.rows.length+1; styleCell(ws,covLbl,0,{font:{bold:true,sz:10,name:'Arial',color:{rgb:'FFFFFF'}},fill:xlFill('1C2C3D')});
+  var covLbl=2+allBody.length+1; styleCell(ws,covLbl,0,{font:{bold:true,sz:10,name:'Arial',color:{rgb:'FFFFFF'}},fill:xlFill('1C2C3D')});
   var covHead=covLbl+1; for(var cc=0;cc<chead.length;cc++) styleCell(ws,covHead,cc,{font:{bold:true,sz:9,name:'Arial'},fill:xlFill('E6ECF1'),alignment:{horizontal:'center'},border:allB});
   R.activeShifts.forEach(function(s,si){ var rr2=covHead+1+si; styleCell(ws,rr2,0,{font:{bold:true,name:'Arial',sz:9},border:allB}); styleCell(ws,rr2,1,{font:{name:'Arial',sz:9},alignment:{horizontal:'center'},border:allB});
     days.forEach(function(dd,i){ var req=(dd.isWeekend||dd.isHoliday)?R.demand[s].weekend:R.demand[s].weekday; var got=R.cov.counter[s][i]; var bad=got<req; styleCell(ws,rr2,2+i,{font:{name:'Arial',sz:9,bold:true,color:{rgb:bad?'CF3D3D':'1F8F5F'}},fill:xlFill(bad?'F6CFCF':'FFFFFF'),alignment:{horizontal:'center'},border:allB}); }); });
