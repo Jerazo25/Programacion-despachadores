@@ -187,7 +187,7 @@ tr.section-lbl td{background:var(--ink2);color:#fff;text-align:left;padding:6px 
 <div class="topbar">
   <div class="brand">
     <div class="glyph">CT</div>
-    <div><h1>Programación mensual de despachadores <span class="vbadge">v2.1</span></h1><div class="sub">ASIGNACIÓN DE TURNOS · JORNADA 42 H</div></div>
+    <div><h1>Programación mensual de despachadores <span class="vbadge">v2.3</span></h1><div class="sub">ASIGNACIÓN DE TURNOS · JORNADA 42 H</div></div>
   </div>
   <div class="spacer"></div>
   <div class="status" id="genStatus"><span class="dot" id="genDot"></span><span id="genLabel">Sin programación generada</span></div>
@@ -398,7 +398,10 @@ function buildWorkerRow(worker,monthInfo,offset,seed,rotShifts,dayTarget){
     return {row:row,quota:redDays,startRun:0};
   }
   // Turno fijo L-V con fin de semana libre o un turno (p.ej. tarde) -> plantilla + puente lunes
-  var lvWeekend=(fixed&&r.fixedDays==='LV'&&r.weekendShift&&r.weekendShift!=='L'&&SHIFT_DEFS[r.weekendShift])?r.weekendShift:null;
+  var lvWeekend=null;
+  if(fixed&&r.fixedDays==='LV'&&r.weekendShift&&r.weekendShift!=='L'){
+    lvWeekend=(r.weekendShift==='ROT')?fixed:(SHIFT_DEFS[r.weekendShift]?r.weekendShift:null);
+  }
   if(fixed && r.fixedDays==='LV' && !lvWeekend){
     days.forEach(function(dd,i){ if(row[i]!=='LM'&&row[i]!=='VAC'){ row[i]=(dd.dow===0||dd.dow===6)?'L':fixed; } });
     return {row:row,quota:redDays,startRun:0};
@@ -477,6 +480,7 @@ function rebalance(rows,monthInfo,activeSh,demand){
     var fm={FIJO_M:'M',FIJO_T:'T',FIJO_N:'N',FIJO_A:'A',FIJO_B:'B',FIJO_C:'C',FIJO_D:'D'};
     // Fijo L-V con turno de fin de semana: en sábado/domingo su turno propio es el weekendShift (no el fijo)
     if(d!==undefined && r.fixedDays==='LV' && r.weekendShift && r.weekendShift!=='L' && (days[d].dow===0||days[d].dow===6)){
+      if(r.weekendShift==='ROT') return true;
       return (r.altShifts||[]).indexOf(target)>=0;
     }
     if(fm[r.mode]===target) return true;
@@ -923,15 +927,94 @@ function rebalance(rows,monthInfo,activeSh,demand){
       }
     }
   }
+  // (W1) Máximos ESTRICTOS en fin de semana y festivos: el excedente sobre el máximo descansa
+  // ese día (manteniendo mínimos y los 2 domingos) y trabaja un día de semana donde tenía libre
+  days.forEach(function(dd,d){ if(!(dd.isWeekend||dd.isHoliday)) return;
+    activeSh.forEach(function(O){ var g=0;
+      while(g++<20){ var c=counts(d); var capO=capRaw(O,true); if(c[O]<=capO) break;
+        var done=false;
+        // 1) mover a otro turno del mismo día (primero bajo mínimo, luego bajo máximo)
+        var tg=activeSh.filter(function(s){return s!==O&&c[s]<minOf(s,dd);})
+          .concat(activeSh.filter(function(s){return s!==O&&c[s]>=minOf(s,dd)&&c[s]<capRaw(s,true)&&staffed(s);}));
+        for(var ti=0;ti<tg.length&&!done;ti++){ for(var w=0;w<rows.length&&!done;w++){ if(rows[w].row[d]===O&&canTake(w,d,tg[ti])){ rows[w].row[d]=tg[ti]; done=true; } } }
+        // 2) intercambio: descansa el fin de semana y trabaja un día de semana donde tenía libre
+        if(!done){ for(var w2=0;w2<rows.length&&!done;w2++){ var rr=rows[w2], rstr=rr.worker.restriction||{};
+          if(rr.row[d]!==O||isFixed(w2)||locked(w2)) continue;
+          for(var d2=0;d2<n&&!done;d2++){ if(days[d2].isWeekend||days[d2].isHoliday) continue;
+            if(rr.row[d2]!=='L'||(rstr.libres||[]).indexOf(days[d2].date)>=0) continue;
+            var cW=counts(d2);
+            var tgt=activeSh.filter(function(s){ return s==='N'?cW['N']<capRaw('N',false):true; })
+              .sort(function(a,b){ return (cW[a]-minOf(a,days[d2]))-(cW[b]-minOf(b,days[d2])); });
+            for(var si=0;si<tgt.length&&!done;si++){ var S=tgt[si];
+              if(!legalShiftFor(rr,d2,S)) continue;
+              var a=rr.row[d], b=rr.row[d2];
+              rr.row[d]='L'; rr.row[d2]=S;
+              if(validateRow(rr.row,days,rr.startRun).issues.length===0 && sundayOK(rr.row)) done=true;
+              else { rr.row[d]=a; rr.row[d2]=b; }
+            }
+          } } }
+        if(!done) break;
+      } }); });
+  // (EQ) Equidad entre rotativos: nivelar la cantidad de cada turno de día por persona
+  // intercambiando turnos del MISMO día entre dos rotativos (la cobertura no cambia)
+  var dayShiftsEq=activeSh.filter(function(s){ return s!=='N'&&staffed(s); });
+  if(dayShiftsEq.length>=2){
+    function isRot(w){ var r=rows[w].worker.restriction||{}; return !r.mode||r.mode==='ROTATIVO'; }
+    function gapWS(w,S1,S2){ var a=0,b=0; rows[w].row.forEach(function(x){ if(x===S1)a++; else if(x===S2)b++; }); return a-b; }
+    var improved=true, rounds=0;
+    while(improved && rounds++<120){
+      improved=false;
+      for(var si=0; si<dayShiftsEq.length && !improved; si++){
+        for(var sj=si+1; sj<dayShiftsEq.length && !improved; sj++){
+          var S1=dayShiftsEq[si], S2=dayShiftsEq[sj];
+          // ordenar rotativos por su brecha S1-S2 y probar pares (alto, bajo) hasta lograr un intercambio
+          var cand=[];
+          for(var w=0; w<rows.length; w++){ if(!isRot(w)||locked(w)) continue; cand.push({w:w,g:gapWS(w,S1,S2)}); }
+          if(cand.length<2) continue;
+          cand.sort(function(p,q){ return q.g-p.g; });
+          for(var xi=0; xi<cand.length-1 && !improved; xi++){
+            for(var yi=cand.length-1; yi>xi && !improved; yi--){
+              var X=cand[xi].w, Y=cand[yi].w, gx=cand[xi].g, gy=cand[yi].g;
+              if(gx-gy<4) break;
+              // intercambiar TRAMOS CONSECUTIVOS completos donde X hace S1 e Y hace S2 (mismos días)
+              var runs=[], st=-1;
+              for(var d=0; d<=n; d++){
+                var match=(d<n && rows[X].row[d]===S1 && rows[Y].row[d]===S2);
+                if(match && st<0) st=d;
+                if(!match && st>=0){ runs.push({a:st,b:d-1,len:d-st}); st=-1; }
+              }
+              runs=runs.filter(function(rg){ return 4*rg.len < 2*(gx-gy); }); // no sobre-corregir
+              runs.sort(function(p,q){ return Math.abs(4*p.len-(gx-gy))-Math.abs(4*q.len-(gx-gy)); }); // el que mejor iguala primero
+              for(var ri=0; ri<runs.length && !improved; ri++){ var rg=runs[ri];
+                var savX=[], savY=[];
+                for(var k=rg.a; k<=rg.b; k++){ savX.push(rows[X].row[k]); savY.push(rows[Y].row[k]);
+                  rows[X].row[k]=S2; rows[Y].row[k]=S1; }
+                if(validateRow(rows[X].row,days,rows[X].startRun).issues.length===0 &&
+                   validateRow(rows[Y].row,days,rows[Y].startRun).issues.length===0){ improved=true; }
+                else { for(var k2=rg.a; k2<=rg.b; k2++){ rows[X].row[k2]=savX[k2-rg.a]; rows[Y].row[k2]=savY[k2-rg.a]; } }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
   enforceMax();
 }
-/* Mejor orden cíclico de rotación: minimiza transiciones semana-a-semana que rompen las 10 h */
+/* Mejor orden cíclico de rotación: minimiza transiciones ilegales (10 h) y,
+   entre los órdenes legales, prefiere alternar semana AM (05/08/10) con semana PM (12/14/16) */
+function shiftClass(s){ var st=SHIFT_DEFS[s]?SHIFT_DEFS[s].start:0; if(s==='N')return 'N'; return st<12?'AM':'PM'; }
 function bestRotationOrder(shifts){
   if(shifts.length<=1) return shifts.slice();
-  var best=null, bestBad=1e9;
-  function perm(arr,k){ if(k===arr.length){ var bad=0;
-      for(var i=0;i<arr.length;i++){ var a=arr[i], b=arr[(i+1)%arr.length]; if(!gapOK(a,b)) bad++; }
-      if(bad<bestBad){ bestBad=bad; best=arr.slice(); } return; }
+  var best=null, bestScore=1e9;
+  function score(arr){ var bad=0, same=0;
+    for(var i=0;i<arr.length;i++){ var a=arr[i], b=arr[(i+1)%arr.length];
+      if(!gapOK(a,b)) bad++;
+      var ca=shiftClass(a), cb=shiftClass(b);
+      if(ca===cb && ca!=='N') same++;
+    }
+    return bad*100+same*10; }
+  function perm(arr,k){ if(k===arr.length){ var sc=score(arr); if(sc<bestScore){ bestScore=sc; best=arr.slice(); } return; }
     for(var j=k;j<arr.length;j++){ var t=arr[k];arr[k]=arr[j];arr[j]=t; perm(arr,k+1); t=arr[k];arr[k]=arr[j];arr[j]=t; } }
   perm(shifts.slice(),0);
   return best||shifts.slice();
@@ -1051,7 +1134,7 @@ function renderDemand(){ var t=$('demandTable');
 function restrLabel(r){ if(!r||!r.mode||r.mode==='ROTATIVO'){ var ex=[]; if(r){ if(r.lunSab)ex.push('L–S'); if(r.reemplazoNocturno)ex.push('reemp.noche'); if(r.vacaciones&&r.vacaciones.from)ex.push('Vacaciones'); if(r.licencia&&r.licencia.from)ex.push('Licencia'); if(r.fdsLibre)ex.push('FDS libre'); if(r.libres&&r.libres.length)ex.push(r.libres.length+' libre(s)'); }
     return ex.length?{txt:'Rotativo · '+ex.join(', '),cls:'aus'}:{txt:'Rotativo normal',cls:'rot'}; }
   var map={FIJO_M:'Fijo mañana',FIJO_T:'Fijo tarde',FIJO_N:'Fijo noche',FIJO_A:'Fijo 05–12',FIJO_B:'Fijo 14–21',FIJO_C:'Fijo 10–17',FIJO_D:'Fijo 12–19'};
-  var base=map[r.mode]||'Rotativo', ex=[]; if(r.mode&&r.mode.indexOf('FIJO')===0){ base+=(r.fixedDays==='LV'?' (L–V)':' (L–D)'); if(r.fixedDays==='LV'&&r.weekendShift&&r.weekendShift!=='L'&&SHIFT_DEFS[r.weekendShift]) base+=' + FDS '+SHIFT_DEFS[r.weekendShift].label.toLowerCase(); if(r.altShifts&&r.altShifts.length) base+=' +'+r.altShifts.length+' turnos'; }
+  var base=map[r.mode]||'Rotativo', ex=[]; if(r.mode&&r.mode.indexOf('FIJO')===0){ base+=(r.fixedDays==='LV'?' (L–V)':' (L–D)'); if(r.fixedDays==='LV'&&r.weekendShift==='ROT') base+=' + FDS rotativo'; else if(r.fixedDays==='LV'&&r.weekendShift&&r.weekendShift!=='L'&&SHIFT_DEFS[r.weekendShift]) base+=' + FDS '+SHIFT_DEFS[r.weekendShift].label.toLowerCase(); if(r.altShifts&&r.altShifts.length) base+=' +'+r.altShifts.length+' turnos'; }
   if(r.lunSab)ex.push('L–S'); if(r.reemplazoNocturno)ex.push('reemp.noche'); if(r.vacaciones&&r.vacaciones.from)ex.push('Vac'); if(r.licencia&&r.licencia.from)ex.push('Lic'); if(r.fdsLibre)ex.push('FDS'); if(r.libres&&r.libres.length)ex.push(r.libres.length+'L');
   return {txt:base+(ex.length?' · '+ex.join(','):''),cls:'fij'}; }
 function renderWorkers(){ var q=($('wSearch').value||'').toLowerCase();
@@ -1084,6 +1167,7 @@ function openModal(rol){ modalRol=rol; var w=DISPATCHERS.filter(function(d){retu
     '<div style="display:flex;gap:6px"><button type="button" class="segbtn'+(!ld?' on':'')+'" data-fd="LV">L–V</button><button type="button" class="segbtn'+(ld?' on':'')+'" data-fd="LD">L–D</button></div></div>';
   var wsCur=r.weekendShift||'T';
   var wsOpts='<option value="L"'+(wsCur==='L'?' selected':'')+'>Libre (descansa sábado y domingo)</option>';
+  wsOpts+='<option value="ROT"'+(wsCur==='ROT'?' selected':'')+'>Rotativo (la app elige el turno óptimo)</option>';
   ['T','M','N','A','B','C','D'].forEach(function(s){ wsOpts+='<option value="'+s+'"'+(wsCur===s?' selected':'')+'>'+SHIFT_DEFS[s].label+' ('+SHIFT_DEFS[s].time+')</option>'; });
   html+='<div class="ropt" id="weekendBox" style="cursor:default;flex-direction:column;align-items:stretch;margin-top:8px;'+((r.mode&&r.mode.indexOf('FIJO')===0&&r.fixedDays==='LV')?'':'display:none')+'"><div class="rl" style="margin-bottom:4px">Fin de semana (solo L–V)</div><div class="rd" style="margin-bottom:6px">Qué hace sábado y domingo. Si es Tarde, el lunes siguiente a un domingo trabajado se programa automáticamente a las 10:00–17:00 (no requiere activar ese turno en el Paso 2).</div><select id="weekendShift">'+wsOpts+'</select></div>';
   var alts=r.altShifts||[];
