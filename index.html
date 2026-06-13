@@ -150,6 +150,10 @@ thead .colname{z-index:9}
 .cell.edited::after{content:'';position:absolute;top:2px;right:2px;width:5px;height:5px;border-radius:50%;background:#d97706}
 .btn-undo{font-size:12px;font-weight:600;padding:5px 12px;border-radius:7px;border:1px solid #d97706;background:#fff7ed;color:#b45309;cursor:pointer;white-space:nowrap}
 .btn-undo:hover{background:#d97706;color:#fff}
+.viewtoggle{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;margin-right:12px}
+.vtbtn{font-size:12px;font-weight:600;padding:6px 13px;border:0;background:#fff;color:var(--muted);cursor:pointer}
+.vtbtn.on{background:var(--accent);color:#fff}
+.sched td.cell.timecell{font-size:10px;font-family:'JetBrains Mono';letter-spacing:-.02em;padding:5px 3px;line-height:1.2;min-width:54px}
 .manual{max-width:820px;line-height:1.6;color:var(--ink);font-size:14px}
 .manual .m-intro{font-size:14.5px;color:var(--muted);margin-bottom:6px}
 .manual h4{font-family:'Archivo';font-size:15px;margin:22px 0 6px;padding-bottom:5px;border-bottom:2px solid var(--c-Nb);color:var(--c-Nt)}
@@ -209,7 +213,7 @@ tr.section-lbl td{background:var(--ink2);color:#fff;text-align:left;padding:6px 
 <div class="topbar">
   <div class="brand">
     <div class="glyph">CT</div>
-    <div><h1>Programación mensual de despachadores <span class="vbadge">v3.3</span></h1><div class="sub">ASIGNACIÓN DE TURNOS · JORNADA 42 H</div></div>
+    <div><h1>Programación mensual de despachadores <span class="vbadge">v3.4</span></h1><div class="sub">ASIGNACIÓN DE TURNOS · JORNADA 42 H</div></div>
   </div>
   <div class="spacer"></div>
   <div class="status" id="genStatus"><span class="dot" id="genDot"></span><span id="genLabel">Sin programación generada</span></div>
@@ -280,6 +284,10 @@ tr.section-lbl td{background:var(--ink2);color:#fff;text-align:left;padding:6px 
       <div class="toolbar">
         <div><div class="ttl" id="schedTitle"></div><div class="meta" id="schedMeta"></div></div>
         <div class="spacer" style="flex:1"></div>
+        <div class="viewtoggle">
+          <button class="vtbtn on" id="vtCode" type="button">Código</button>
+          <button class="vtbtn" id="vtTime" type="button">Horario</button>
+        </div>
         <div class="legend" id="legend"></div>
       </div>
       <div class="gridscroll"><table class="sched" id="schedTable"></table></div>
@@ -1363,6 +1371,8 @@ function init(){
   $('wSearch').oninput=renderWorkers;
   $('btnAddHol').onclick=function(){ var v=$('holInput').value; if(v){ if(!state.holidays.some(function(h){return h[0]===v;})){ state.holidays.push([v,'Feriado agregado']); state.holidays.sort(function(a,b){return a[0]<b[0]?-1:1;}); } renderHolidays(); $('holInput').value=''; renderTerminfo(); } };
   $('btnGen').onclick=generate; $('btnXlsx').onclick=exportExcel; $('btnGeo').onclick=exportGeo;
+  if($('vtCode')) $('vtCode').onclick=function(){ SCHED_VIEW='code'; $('vtCode').classList.add('on'); $('vtTime').classList.remove('on'); if(state.result) renderSchedule(); };
+  if($('vtTime')) $('vtTime').onclick=function(){ SCHED_VIEW='time'; $('vtTime').classList.add('on'); $('vtCode').classList.remove('on'); if(state.result) renderSchedule(); };
   document.querySelectorAll('.tab').forEach(function(tab){ tab.onclick=function(){ switchView(tab.dataset.view); if(tab.dataset.view==='terminales') renderTerminales(); if(tab.dataset.view==='changes') renderChanges(); }; });
   updateChangesBadge();
   if($('chClear')) $('chClear').onclick=function(){ if(confirm('¿Borrar el registro de cambios de '+state.terminal+'?')){ changesSet(changesGet().filter(function(e){return e.terminal!==state.terminal;})); updateChangesBadge(); renderChanges(); } };
@@ -1659,6 +1669,11 @@ function onTerminalOrMonthChange(){
 function recomputeDerived(){ var R=state.result; R.cov=computeCoverage(R.rows.map(function(r){return r.row;}),R.monthInfo,R.activeShifts,R.demand);
   renderCounters(); renderUncovered(); renderLegal(); }
 
+var SCHED_VIEW='code'; // 'code' | 'time'
+function cellDisplay(c){
+  if(SCHED_VIEW==='time'){ var def=SHIFT_DEFS[c]||YARD_SHIFT_DEFS[c]; if(def) return def.time; }
+  return c;
+}
 function renderSchedule(){ var R=state.result; $('schedEmpty').style.display='none'; $('schedContent').style.display='block';
   var mi=R.monthInfo, days=mi.days;
   $('schedTitle').textContent=R.terminal+' · '+MONTHS_ES[R.month-1]+' '+R.year;
@@ -1681,7 +1696,7 @@ function renderSchedule(){ var R=state.result; $('schedEmpty').style.display='no
     yrows.forEach(function(rr,yi){ var tr=document.createElement('tr');
       var cargoTag=isJefe(rr.worker.cargo)?'Jefe de patio':'Asistente de patio';
       var cell='<td class="colname yard"><div class="nm">'+rr.worker.nombre+'</div><div class="meta2">'+cargoTag+'</div></td>';
-      rr.row.forEach(function(c,i){ var cls=YARD_SHIFT_DEFS[c]?'s-yard':(STATE_DEFS[c]?STATE_DEFS[c].cls:''); var ed=(R.origYard&&R.origYard[yi]&&R.origYard[yi][i]!==undefined&&R.origYard[yi][i]!==c)?' edited':''; cell+='<td class="cell editable '+cls+ed+'" data-y="'+yi+'" data-d="'+i+'">'+c+'</td>'; });
+      rr.row.forEach(function(c,i){ var cls=YARD_SHIFT_DEFS[c]?'s-yard':(STATE_DEFS[c]?STATE_DEFS[c].cls:''); var ed=(R.origYard&&R.origYard[yi]&&R.origYard[yi][i]!==undefined&&R.origYard[yi][i]!==c)?' edited':''; var tc=(SCHED_VIEW==='time'&&YARD_SHIFT_DEFS[c])?' timecell':''; cell+='<td class="cell editable '+cls+ed+tc+'" data-y="'+yi+'" data-d="'+i+'">'+cellDisplay(c)+'</td>'; });
       tr.innerHTML=cell; tb.appendChild(tr); });
     var ysp=document.createElement('tr'); ysp.className='spacer'; ysp.innerHTML='<td colspan="'+(days.length+1)+'"></td>'; tb.appendChild(ysp);
     var dl=document.createElement('tr'); dl.className='section-lbl'; dl.innerHTML='<td colspan="'+(days.length+1)+'">Despachadores</td>'; tb.appendChild(dl);
@@ -1689,7 +1704,7 @@ function renderSchedule(){ var R=state.result; $('schedEmpty').style.display='no
   R.rows.forEach(function(rr,wi){ var v=validateRow(rr.row,days,rr.startRun); var tr=document.createElement('tr');
     var meta='L:'+v.libres+'/'+mi.redDays+' · Dom:'+v.domLibres+' · máx '+v.maxRun+'d';
     var cell='<td class="colname"><div class="nm">'+rr.worker.nombre+'</div><div class="meta2">'+(v.issues.length?'⚠ ':'✓ ')+meta+'</div></td>';
-    rr.row.forEach(function(c,i){ var cls=(SHIFT_DEFS[c]?'s-'+c:STATE_DEFS[c]?STATE_DEFS[c].cls:''); var ed=(R.origRows&&R.origRows[wi]&&R.origRows[wi][i]!==undefined&&R.origRows[wi][i]!==c)?' edited':''; cell+='<td class="cell editable '+cls+ed+'" data-w="'+wi+'" data-d="'+i+'">'+c+'</td>'; });
+    rr.row.forEach(function(c,i){ var cls=(SHIFT_DEFS[c]?'s-'+c:STATE_DEFS[c]?STATE_DEFS[c].cls:''); var ed=(R.origRows&&R.origRows[wi]&&R.origRows[wi][i]!==undefined&&R.origRows[wi][i]!==c)?' edited':''; var tc=(SCHED_VIEW==='time'&&SHIFT_DEFS[c])?' timecell':''; cell+='<td class="cell editable '+cls+ed+tc+'" data-w="'+wi+'" data-d="'+i+'">'+cellDisplay(c)+'</td>'; });
     tr.innerHTML=cell; tb.appendChild(tr); });
   // contadores
   var sp=document.createElement('tr'); sp.className='spacer'; sp.innerHTML='<td colspan="'+(days.length+1)+'"></td>'; tb.appendChild(sp);
@@ -1705,7 +1720,7 @@ function openYardEditor(td){ closeCellMenu(); var y=+td.dataset.y, d=+td.dataset
   var menu=document.createElement('div'); menu.className='cellmenu';
   opts.forEach(function(o){ var b=document.createElement('button'); b.type='button'; b.className='cellopt '+(YARD_SHIFT_DEFS[o]?'s-yard':'s-'+o)+(o===cur?' cur':'');
     b.innerHTML='<b class="mono">'+o+'</b> '+((YARD_SHIFT_DEFS[o]||STATE_DEFS[o]).label);
-    b.onclick=function(ev){ ev.stopPropagation(); var old=R.yardRows[y].row[d]; if(old!==o){ R.yardRows[y].row[d]=o; logChange(R.yardRows[y].worker,d,old,o,'yard',y); saveSchedule(); } var orig=(R.origYard&&R.origYard[y])?R.origYard[y][d]:undefined; var edCls=(orig!==undefined&&orig!==o)?' edited':''; td.className='cell editable '+(YARD_SHIFT_DEFS[o]?'s-yard':STATE_DEFS[o].cls)+edCls; td.textContent=o; closeCellMenu(); };
+    b.onclick=function(ev){ ev.stopPropagation(); var old=R.yardRows[y].row[d]; if(old!==o){ R.yardRows[y].row[d]=o; logChange(R.yardRows[y].worker,d,old,o,'yard',y); saveSchedule(); } var orig=(R.origYard&&R.origYard[y])?R.origYard[y][d]:undefined; var edCls=(orig!==undefined&&orig!==o)?' edited':''; var tc=(SCHED_VIEW==='time'&&YARD_SHIFT_DEFS[o])?' timecell':''; td.className='cell editable '+(YARD_SHIFT_DEFS[o]?'s-yard':STATE_DEFS[o].cls)+edCls+tc; td.textContent=cellDisplay(o); closeCellMenu(); };
     menu.appendChild(b); });
   document.body.appendChild(menu);
   var rect=td.getBoundingClientRect(); var mw=Math.min(170,window.innerWidth-12); menu.style.minWidth=mw+'px';
@@ -1723,7 +1738,8 @@ function closeCellMenu(){ if(window._cellMenu){ document.removeEventListener('mo
 function applyEdit(td,w,d,nv){ var R=state.result; var old=R.rows[w].row[d]; if(old===nv){ return; } R.rows[w].row[d]=nv; var v=validateRow(R.rows[w].row,R.monthInfo.days,R.rows[w].startRun);
   var orig=(R.origRows&&R.origRows[w])?R.origRows[w][d]:undefined;
   var edCls=(orig!==undefined&&orig!==nv)?' edited':'';
-  td.className='cell editable '+(SHIFT_DEFS[nv]?'s-'+nv:STATE_DEFS[nv].cls)+edCls; td.textContent=nv;
+  var tc=(SCHED_VIEW==='time'&&SHIFT_DEFS[nv])?' timecell':'';
+  td.className='cell editable '+(SHIFT_DEFS[nv]?'s-'+nv:STATE_DEFS[nv].cls)+edCls+tc; td.textContent=cellDisplay(nv);
   var tr=td.parentNode, meta=tr.querySelector('.meta2'); if(meta) meta.innerHTML=(v.issues.length?'⚠ ':'✓ ')+'L:'+v.libres+'/'+R.monthInfo.redDays+' · Dom:'+v.domLibres+' · máx '+v.maxRun+'d';
   logChange(R.rows[w].worker,d,old,nv,'disp',w); recomputeDerived(); saveSchedule(); }
 function cellLabel(c){ var def=SHIFT_DEFS[c]||YARD_SHIFT_DEFS[c]||STATE_DEFS[c]; return def?(c+' '+def.label):c; }
@@ -1932,30 +1948,37 @@ function doExportGeo(){ var R=state.result, days=R.monthInfo.days; var wb=XLSX.u
   ws['!cols']=[{wch:8},{wch:10}].concat(days.map(function(){return {wch:5};}));
   XLSX.utils.book_append_sheet(wb,ws,'Hoja1');
   XLSX.writeFile(wb,'GeoVictoria_'+R.terminal.replace(/\s+/g,'_')+'_'+R.year+'-'+pad(R.month)+'.xlsx'); }
-function doExportExcel(){ var R=state.result, mi=R.monthInfo, days=mi.days; var wb=XLSX.utils.book_new();
+function buildSchedSheet(wb,mode){ var R=state.result, mi=R.monthInfo, days=mi.days;
   var border={style:'thin',color:{rgb:'D8DEE6'}}, allB={top:border,bottom:border,left:border,right:border};
-  var aoa=[['Programación de turnos — '+R.terminal+' — '+MONTHS_ES[R.month-1]+' '+R.year]];
+  function disp(c){ if(mode==='time'){ var def=SHIFT_DEFS[c]||YARD_SHIFT_DEFS[c]; if(def) return def.time; } return c; }
+  var titulo='Programación de turnos'+(mode==='time'?' (horario)':' (código)')+' — '+R.terminal+' — '+MONTHS_ES[R.month-1]+' '+R.year;
+  var aoa=[[titulo]];
   var head=['DESPACHADOR','ROL']; days.forEach(function(dd){head.push(dd.d+' '+DOW_ES[dd.dow]);}); head.push('Libres','Dom.lib','MáxSeg'); aoa.push(head);
   var yrows=R.yardRows||[];
-  yrows.forEach(function(rr){ var line=[rr.worker.nombre+'  ('+(isJefe(rr.worker.cargo)?'Jefe patio':'Asist. patio')+')',rr.worker.rol]; rr.row.forEach(function(c){line.push(c);}); line.push('','',''); aoa.push(line); });
-  R.rows.forEach(function(rr){ var v=validateRow(rr.row,days,rr.startRun); var line=[rr.worker.nombre,rr.worker.rol]; rr.row.forEach(function(c){line.push(c);}); line.push(v.libres,v.domLibres,v.maxRun); aoa.push(line); });
+  yrows.forEach(function(rr){ var line=[rr.worker.nombre+'  ('+(isJefe(rr.worker.cargo)?'Jefe patio':'Asist. patio')+')',rr.worker.rol]; rr.row.forEach(function(c){line.push(disp(c));}); line.push('','',''); aoa.push(line); });
+  R.rows.forEach(function(rr){ var v=validateRow(rr.row,days,rr.startRun); var line=[rr.worker.nombre,rr.worker.rol]; rr.row.forEach(function(c){line.push(disp(c));}); line.push(v.libres,v.domLibres,v.maxRun); aoa.push(line); });
   aoa.push([]); aoa.push(['COBERTURA POR TURNO (asignados por día)']);
   var chead=['Turno','Req L-V / S-D']; days.forEach(function(dd){chead.push(dd.d+' '+DOW_ES[dd.dow]);}); aoa.push(chead);
-  R.activeShifts.forEach(function(s){ var line=[SHIFT_DEFS[s].label,R.demand[s].weekday+' / '+R.demand[s].weekend]; days.forEach(function(dd,i){line.push(R.cov.counter[s][i]);}); aoa.push(line); });
+  R.activeShifts.forEach(function(s){ var line=[(mode==='time'?SHIFT_DEFS[s].time:SHIFT_DEFS[s].label),R.demand[s].weekday+' / '+R.demand[s].weekend]; days.forEach(function(dd,i){line.push(R.cov.counter[s][i]);}); aoa.push(line); });
   var ws=XLSX.utils.aoa_to_sheet(aoa); ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:days.length+4}}];
-  ws['!cols']=[{wch:30},{wch:8}].concat(days.map(function(){return {wch:4.5};})).concat([{wch:7},{wch:7},{wch:7}]);
+  var dwid=(mode==='time')?9:4.5;
+  ws['!cols']=[{wch:30},{wch:8}].concat(days.map(function(){return {wch:dwid};})).concat([{wch:7},{wch:7},{wch:7}]);
   styleCell(ws,0,0,{font:{bold:true,sz:13,name:'Arial'}});
   for(var c=0;c<head.length;c++){ var dd=days[c-2]; var fill=(dd&&dd.isRed)?'F6CFCF':'1C2C3D'; var col=(dd&&dd.isRed)?'7A1414':'FFFFFF'; if(c<2||c>=days.length+2){fill='1C2C3D';col='FFFFFF';}
     styleCell(ws,1,c,{font:{bold:true,sz:9,name:'Arial',color:{rgb:col}},fill:xlFill(fill),alignment:{horizontal:'center',vertical:'center'},border:allB}); }
   var allBody=yrows.concat(R.rows);
   allBody.forEach(function(rr,ri){ var isY=ri<yrows.length; styleCell(ws,2+ri,0,{font:{name:'Arial',sz:10,bold:true,color:{rgb:isY?'0A4A5C':'1C2C3D'}},fill:isY?xlFill('EAF6F9'):undefined,border:allB}); styleCell(ws,2+ri,1,{font:{name:'Arial',sz:9,color:{rgb:'8794A3'}},alignment:{horizontal:'center'},border:allB});
-    rr.row.forEach(function(code,ci){ styleCell(ws,2+ri,2+ci,{font:{name:'Arial',sz:9,bold:true,color:{rgb:XL_TXT[code]||'000000'}},fill:xlFill(XL_COLORS[code]||'FFFFFF'),alignment:{horizontal:'center'},border:allB}); });
+    rr.row.forEach(function(code,ci){ styleCell(ws,2+ri,2+ci,{font:{name:'Arial',sz:(mode==='time'?8:9),bold:true,color:{rgb:XL_TXT[code]||'000000'}},fill:xlFill(XL_COLORS[code]||'FFFFFF'),alignment:{horizontal:'center'},border:allB}); });
     for(var k=0;k<3;k++) styleCell(ws,2+ri,2+days.length+k,{font:{name:'Arial',sz:9},alignment:{horizontal:'center'},border:allB}); });
   var covLbl=2+allBody.length+1; styleCell(ws,covLbl,0,{font:{bold:true,sz:10,name:'Arial',color:{rgb:'FFFFFF'}},fill:xlFill('1C2C3D')});
   var covHead=covLbl+1; for(var cc=0;cc<chead.length;cc++) styleCell(ws,covHead,cc,{font:{bold:true,sz:9,name:'Arial'},fill:xlFill('E6ECF1'),alignment:{horizontal:'center'},border:allB});
   R.activeShifts.forEach(function(s,si){ var rr2=covHead+1+si; styleCell(ws,rr2,0,{font:{bold:true,name:'Arial',sz:9},border:allB}); styleCell(ws,rr2,1,{font:{name:'Arial',sz:9},alignment:{horizontal:'center'},border:allB});
     days.forEach(function(dd,i){ var req=(dd.isWeekend||dd.isHoliday)?R.demand[s].weekend:R.demand[s].weekday; var got=R.cov.counter[s][i]; var bad=got<req; styleCell(ws,rr2,2+i,{font:{name:'Arial',sz:9,bold:true,color:{rgb:bad?'CF3D3D':'1F8F5F'}},fill:xlFill(bad?'F6CFCF':'FFFFFF'),alignment:{horizontal:'center'},border:allB}); }); });
-  ws['!freeze']={xSplit:2,ySplit:2}; XLSX.utils.book_append_sheet(wb,ws,'Programación');
+  ws['!freeze']={xSplit:2,ySplit:2}; XLSX.utils.book_append_sheet(wb,ws,mode==='time'?'Programación (horario)':'Programación (código)'); }
+function doExportExcel(){ var R=state.result, mi=R.monthInfo, days=mi.days; var wb=XLSX.utils.book_new();
+  var border={style:'thin',color:{rgb:'D8DEE6'}}, allB={top:border,bottom:border,left:border,right:border};
+  buildSchedSheet(wb,'code');
+  buildSchedSheet(wb,'time');
   // no cubiertos
   var u2=[['Turnos no cubiertos — '+R.terminal+' — '+MONTHS_ES[R.month-1]+' '+R.year],[],['Fecha','Día','Turno','Horario','Requeridos','Asignados','Faltan']];
   if(R.cov.uncovered.length) R.cov.uncovered.forEach(function(u){ u2.push([u.date,DOW_ES[u.dow]+(u.weekend?' (FDS)':''),SHIFT_DEFS[u.shift].label,SHIFT_DEFS[u.shift].time,u.req,u.got,u.missing]); });
